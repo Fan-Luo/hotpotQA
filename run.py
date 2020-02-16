@@ -67,6 +67,8 @@ def train(config):
     dev_buckets = get_buckets(config.dev_record_file)
 
     def build_train_iterator():
+        print("para_size as parameter in build_train_iterator:" + str(config.para_limit))
+        print("ques_size as parameter in build_train_iterator:" + str(config.ques_limit))
         return DataIterator(train_buckets, config.batch_size, config.para_limit, config.ques_limit, config.char_limit, True, config.sent_limit)
 
     def build_dev_iterator():
@@ -80,6 +82,8 @@ def train(config):
     logging('nparams {}'.format(sum([p.nelement() for p in model.parameters() if p.requires_grad])))
     ori_model = model.cuda()
     model = nn.DataParallel(ori_model)
+    print("next(model.parameters()).is_cuda: " + str(next(model.parameters()).is_cuda));
+    print("next(ori_model.parameters()).is_cuda: " + str(next(ori_model.parameters()).is_cuda));
 
     lr = config.init_lr
     optimizer = optim.SGD(filter(lambda p: p.requires_grad, model.parameters()), lr=config.init_lr)
@@ -109,7 +113,12 @@ def train(config):
 
             logit1, logit2, predict_type, predict_support = model(context_idxs, ques_idxs, context_char_idxs, ques_char_idxs, context_lens, start_mapping, end_mapping, all_mapping, return_yp=False)
             loss_1 = (nll_sum(predict_type, q_type) + nll_sum(logit1, y1) + nll_sum(logit2, y2)) / context_idxs.size(0)
-            loss_2 = nll_average(predict_support.view(-1, 2), is_support.view(-1))
+            #print('config.sp_loss_potion {} in train'.format(config.sp_loss_potion))
+            if config.sp_loss_potion != 0.0:
+                loss_2 = nll_average(predict_support.view(-1, 2), is_support.view(-1))
+            else:
+                loss_2 = 0.0
+            #print('loss_2 = {} at epoch {} in train'.format(loss_2, epoch))
             loss = loss_1 + config.sp_lambda * loss_2
 
             optimizer.zero_grad()
@@ -178,7 +187,14 @@ def evaluate_batch(data_source, model, max_batches, eval_file, config):
         all_mapping = Variable(data['all_mapping'], volatile=True)
 
         logit1, logit2, predict_type, predict_support, yp1, yp2 = model(context_idxs, ques_idxs, context_char_idxs, ques_char_idxs, context_lens, start_mapping, end_mapping, all_mapping, return_yp=True)
-        loss = (nll_sum(predict_type, q_type) + nll_sum(logit1, y1) + nll_sum(logit2, y2)) / context_idxs.size(0) + config.sp_lambda * nll_average(predict_support.view(-1, 2), is_support.view(-1))
+        loss_1 = (nll_sum(predict_type, q_type) + nll_sum(logit1, y1) + nll_sum(logit2, y2)) / context_idxs.size(0) 
+        #print('config.sp_loss_potion {} in evaluate_batch'.format(config.sp_loss_potion))
+        if config.sp_loss_potion != 0.0:
+            loss_2 = nll_average(predict_support.view(-1, 2), is_support.view(-1))
+        else:
+            loss_2 = 0.0
+        #print('loss_2 = {} at step {} in evaluate_batch'.format(loss_2, step))
+        loss = loss_1 + config.sp_lambda * loss_2
         answer_dict_ = convert_tokens(eval_file, data['ids'], yp1.data.cpu().numpy().tolist(), yp2.data.cpu().numpy().tolist(), np.argmax(predict_type.data.cpu().numpy(), 1))
         answer_dict.update(answer_dict_)
 

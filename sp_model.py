@@ -93,12 +93,26 @@ class SPModel(nn.Module):
 
         sp_output = self.rnn_sp(output, context_lens)
 
-        start_output = torch.matmul(start_mapping.permute(0, 2, 1).contiguous(), sp_output[:,:,self.hidden:])
+        start_output = torch.matmul(start_mapping.permute(0, 2, 1).contiguous(), sp_output[:,:,self.hidden:])  #start mapping mask the last word embedding of forward pass
         end_output = torch.matmul(end_mapping.permute(0, 2, 1).contiguous(), sp_output[:,:,:self.hidden])
-        sp_output = torch.cat([start_output, end_output], dim=-1)
+        sp_output = torch.cat([start_output, end_output], dim=-1)  # bidir sentence embedding
         sp_output_t = self.linear_sp(sp_output)
         sp_output_aux = Variable(sp_output_t.data.new(sp_output_t.size(0), sp_output_t.size(1), 1).zero_())
         predict_support = torch.cat([sp_output_aux, sp_output_t], dim=-1).contiguous()
+
+        # print("sentence length:", sp_output.size()[1])
+        # print("start mapping size before permute:", start_mapping.size())
+        # print("start mapping before permute:", start_mapping)
+        # print("start mapping none zero:",np.where(start_mapping.data.numpy()==1))
+        # print("start output:", start_output.size())
+        # print("sp output before transformation:", sp_output.size())
+        # print("sp output after transformation:", sp_output_t.size())
+        # print("sp output after transformation:", sp_output_t)
+        # print("sp output aux:", sp_output_aux)
+        # print("predict_support:", predict_support.size())
+        # print("predict_support:", predict_support)
+        # input("AAAs")
+
 
         sp_output = torch.matmul(all_mapping, sp_output)
         output_start = torch.cat([output, sp_output], dim=-1)
