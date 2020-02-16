@@ -296,9 +296,11 @@ def build_features(config, examples, data_type, out_file, word2idx_dict, char2id
             'y1': y1,
             'y2': y2,
             'id': example['id'],
-            'start_end_facts': example['start_end_facts']})
+            'start_end_facts': example['start_end_facts']
+        })
     print("Build {} / {} instances of features in total".format(total, total_))
     # pickle.dump(datapoints, open(out_file, 'wb'), protocol=-1)
+    
     torch.save(datapoints, out_file)
 
 def save(filename, obj, message=None):

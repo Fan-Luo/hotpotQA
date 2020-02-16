@@ -63,8 +63,8 @@ def train(config):
         logging('    - {} : {}'.format(k, v))
 
     logging("Building model...")
-    train_buckets = get_buckets(config.train_record_file)
-    dev_buckets = get_buckets(config.dev_record_file)
+    train_buckets = get_buckets(config.train_record_file, config.sp_loss_portion)
+    dev_buckets = get_buckets(config.dev_record_file, 1.0)
 
     def build_train_iterator():
         print("para_size as parameter in build_train_iterator:" + str(config.para_limit))
@@ -89,6 +89,8 @@ def train(config):
     optimizer = optim.SGD(filter(lambda p: p.requires_grad, model.parameters()), lr=config.init_lr)
     cur_patience = 0
     total_loss = 0
+    total_ans_loss = 0
+    total_sp_loss = 0
     global_step = 0
     best_dev_F1 = None
     stop_train = False
@@ -113,12 +115,7 @@ def train(config):
 
             logit1, logit2, predict_type, predict_support = model(context_idxs, ques_idxs, context_char_idxs, ques_char_idxs, context_lens, start_mapping, end_mapping, all_mapping, return_yp=False)
             loss_1 = (nll_sum(predict_type, q_type) + nll_sum(logit1, y1) + nll_sum(logit2, y2)) / context_idxs.size(0)
-            #print('config.sp_loss_potion {} in train'.format(config.sp_loss_potion))
-            if config.sp_loss_potion != 0.0:
-                loss_2 = nll_average(predict_support.view(-1, 2), is_support.view(-1))
-            else:
-                loss_2 = 0.0
-            #print('loss_2 = {} at epoch {} in train'.format(loss_2, epoch))
+            loss_2 = nll_average(predict_support.view(-1, 2), is_support.view(-1))
             loss = loss_1 + config.sp_lambda * loss_2
 
             optimizer.zero_grad()
@@ -126,13 +123,19 @@ def train(config):
             optimizer.step()
 
             total_loss += loss.data[0]
+            total_ans_loss += loss_1.data[0]
+            total_sp_loss += loss_2.data[0]
             global_step += 1
 
             if global_step % config.period == 0:
                 cur_loss = total_loss / config.period
+                cur_ans_loss = total_ans_loss / config.period
+                cur_sp_loss = total_sp_loss / config.period
                 elapsed = time.time() - start_time
-                logging('| epoch {:3d} | step {:6d} | lr {:05.5f} | ms/batch {:5.2f} | train loss {:8.3f}'.format(epoch, global_step, lr, elapsed*1000/config.period, cur_loss))
+                logging('| epoch {:3d} | step {:6d} | lr {:05.5f} | ms/batch {:5.2f} | train loss {:8.3f} | answer loss {:8.3f} | supporting facts loss {:8.3f} '.format(epoch, global_step, lr, elapsed*1000/config.period, cur_loss, cur_ans_loss, cur_sp_loss))
                 total_loss = 0
+                total_ans_loss = 0
+                total_sp_loss = 0
                 start_time = time.time()
 
             if global_step % config.checkpoint == 0:
@@ -141,8 +144,8 @@ def train(config):
                 model.train()
 
                 logging('-' * 89)
-                logging('| eval {:6d} in epoch {:3d} | time: {:5.2f}s | dev loss {:8.3f} | EM {:.4f} | F1 {:.4f}'.format(global_step//config.checkpoint,
-                    epoch, time.time()-eval_start_time, metrics['loss'], metrics['exact_match'], metrics['f1']))
+                logging('| eval {:6d} in epoch {:3d} | time: {:5.2f}s | dev loss {:8.3f} | answer loss {:8.3f} | supporting facts loss {:8.3f} | EM {:.4f} | F1 {:.4f}'.format(global_step//config.checkpoint,
+                    epoch, time.time()-eval_start_time, metrics['loss'], metrics['ans_loss'], metrics['sp_loss'], metrics['exact_match'], metrics['f1']))
                 logging('-' * 89)
 
                 eval_start_time = time.time()
@@ -168,7 +171,7 @@ def train(config):
 def evaluate_batch(data_source, model, max_batches, eval_file, config):
     answer_dict = {}
     sp_dict = {}
-    total_loss, step_cnt = 0, 0
+    total_loss, total_ans_loss, total_sp_loss, step_cnt = 0, 0, 0, 0
     iter = data_source
     for step, data in enumerate(iter):
         if step >= max_batches and max_batches > 0: break
@@ -188,21 +191,22 @@ def evaluate_batch(data_source, model, max_batches, eval_file, config):
 
         logit1, logit2, predict_type, predict_support, yp1, yp2 = model(context_idxs, ques_idxs, context_char_idxs, ques_char_idxs, context_lens, start_mapping, end_mapping, all_mapping, return_yp=True)
         loss_1 = (nll_sum(predict_type, q_type) + nll_sum(logit1, y1) + nll_sum(logit2, y2)) / context_idxs.size(0) 
-        #print('config.sp_loss_potion {} in evaluate_batch'.format(config.sp_loss_potion))
-        if config.sp_loss_potion != 0.0:
-            loss_2 = nll_average(predict_support.view(-1, 2), is_support.view(-1))
-        else:
-            loss_2 = 0.0
-        #print('loss_2 = {} at step {} in evaluate_batch'.format(loss_2, step))
+        loss_2 = nll_average(predict_support.view(-1, 2), is_support.view(-1))
         loss = loss_1 + config.sp_lambda * loss_2
         answer_dict_ = convert_tokens(eval_file, data['ids'], yp1.data.cpu().numpy().tolist(), yp2.data.cpu().numpy().tolist(), np.argmax(predict_type.data.cpu().numpy(), 1))
         answer_dict.update(answer_dict_)
 
         total_loss += loss.data[0]
+        total_ans_loss += loss_1.data[0]
+        total_sp_loss += loss_2.data[0]
         step_cnt += 1
     loss = total_loss / step_cnt
+    ans_loss = total_ans_loss / step_cnt
+    sp_loss = total_sp_loss / step_cnt
     metrics = evaluate(eval_file, answer_dict)
     metrics['loss'] = loss
+    metrics['ans_loss'] = ans_loss
+    metrics['sp_loss'] = sp_loss
 
     return metrics
 
@@ -265,13 +269,13 @@ def test(config):
                 f_log.write(s + '\n')
 
     if config.data_split == 'dev':
-        dev_buckets = get_buckets(config.dev_record_file)
+        dev_buckets = get_buckets(config.dev_record_file, 1.0)
         para_limit = config.para_limit
         ques_limit = config.ques_limit
     elif config.data_split == 'test':
         para_limit = None
         ques_limit = None
-        dev_buckets = get_buckets(config.test_record_file)
+        dev_buckets = get_buckets(config.test_record_file, 1.0)
 
     def build_dev_iterator():
         return DataIterator(dev_buckets, config.batch_size, para_limit,
