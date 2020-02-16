@@ -66,6 +66,7 @@ parser.add_argument('--data_split', type=str, default='train')
 parser.add_argument('--fullwiki', action='store_true')
 parser.add_argument('--prediction_file', type=str)
 parser.add_argument('--sp_threshold', type=float, default=0.3)
+parser.add_argument('--sp_loss_portion', type=float, default=1.0)
 
 config = parser.parse_args()
 
