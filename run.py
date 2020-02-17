@@ -64,7 +64,7 @@ def train(config):
 
     logging("Building model...")
     train_buckets = get_buckets(config.train_record_file, config.sp_loss_portion)
-    dev_buckets = get_buckets(config.dev_record_file, 1.0)
+    dev_buckets = get_buckets(config.dev_record_file, 0.0)
 
     def build_train_iterator():
         print("para_size as parameter in build_train_iterator:" + str(config.para_limit))
@@ -269,13 +269,13 @@ def test(config):
                 f_log.write(s + '\n')
 
     if config.data_split == 'dev':
-        dev_buckets = get_buckets(config.dev_record_file, 1.0)
+        dev_buckets = get_buckets(config.dev_record_file, 0.0)
         para_limit = config.para_limit
         ques_limit = config.ques_limit
     elif config.data_split == 'test':
         para_limit = None
         ques_limit = None
-        dev_buckets = get_buckets(config.test_record_file, 1.0)
+        dev_buckets = get_buckets(config.test_record_file, 0.0)
 
     def build_dev_iterator():
         return DataIterator(dev_buckets, config.batch_size, para_limit,
