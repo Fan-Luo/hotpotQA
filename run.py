@@ -1,3 +1,4 @@
+from comet_ml import Experiment
 import ujson as json
 import numpy as np
 from tqdm import tqdm
@@ -35,6 +36,9 @@ nll_average = nn.CrossEntropyLoss(size_average=True, ignore_index=IGNORE_INDEX)
 nll_all = nn.CrossEntropyLoss(reduce=False, ignore_index=IGNORE_INDEX)
 
 def train(config):
+    experiment = Experiment(api_key="Q8LzfxMlAfA3ABWwq9fJDoR6r", project_name="hotpot", workspace="fan-luo")
+    experiment.set_name(config.run_name)
+
     with open(config.word_emb_file, "r") as fh:
         word_mat = np.array(json.load(fh), dtype=np.float32)
     with open(config.char_emb_file, "r") as fh:
@@ -44,10 +48,6 @@ def train(config):
     with open(config.idx2word_file, 'r') as fh:
         idx2word_dict = json.load(fh)
 
-    random.seed(config.seed)
-    np.random.seed(config.seed)
-    torch.manual_seed(config.seed)
-    torch.cuda.manual_seed_all(config.seed)
 
     config.save = '{}-{}'.format(config.save, time.strftime("%Y%m%d-%H%M%S"))
     create_exp_dir(config.save, scripts_to_save=['run.py', 'model.py', 'util.py', 'sp_model.py'])
@@ -133,6 +133,7 @@ def train(config):
                 cur_sp_loss = total_sp_loss / config.period
                 elapsed = time.time() - start_time
                 logging('| epoch {:3d} | step {:6d} | lr {:05.5f} | ms/batch {:5.2f} | train loss {:8.3f} | answer loss {:8.3f} | supporting facts loss {:8.3f} '.format(epoch, global_step, lr, elapsed*1000/config.period, cur_loss, cur_ans_loss, cur_sp_loss))
+                experiment.log_metrics({'train loss':cur_loss, 'train answer loss':cur_ans_loss ,'train supporting facts loss':cur_sp_loss }, step=global_step)
                 total_loss = 0
                 total_ans_loss = 0
                 total_sp_loss = 0
@@ -147,6 +148,7 @@ def train(config):
                 logging('| eval {:6d} in epoch {:3d} | time: {:5.2f}s | dev loss {:8.3f} | answer loss {:8.3f} | supporting facts loss {:8.3f} | EM {:.4f} | F1 {:.4f}'.format(global_step//config.checkpoint,
                     epoch, time.time()-eval_start_time, metrics['loss'], metrics['ans_loss'], metrics['sp_loss'], metrics['exact_match'], metrics['f1']))
                 logging('-' * 89)
+                experiment.log_metrics({'dev loss':metrics['loss'], 'dev answer loss':metrics['ans_loss'] ,'dev supporting facts loss':metrics['sp_loss'], 'EM':metrics['exact_match'], 'F1': metrics['f1']}, step=global_step)
 
                 eval_start_time = time.time()
 
@@ -166,6 +168,11 @@ def train(config):
                             break
                         cur_patience = 0
         if stop_train: break
+
+        model.eval()
+        metrics = evaluate_batch(build_dev_iterator(), model, 0, dev_eval_file, config)
+        model.train()
+        experiment.log_metrics({'dev loss after epoch':metrics['loss'], 'answer loss after epoch':metrics['ans_loss'] ,'supporting facts loss after epoch':metrics['sp_loss'], 'EM after epoch':metrics['exact_match'], 'F1 after epoch': metrics['f1']}, step=epoch)
     logging('best_dev_F1 {}'.format(best_dev_F1))
 
 def evaluate_batch(data_source, model, max_batches, eval_file, config):

@@ -21,6 +21,7 @@ def prepro(token):
 
 class DataIterator(object):
     def __init__(self, buckets, bsz, para_limit, ques_limit, char_limit, shuffle, sent_limit):
+        self.num_workers = 0
         self.buckets = buckets
         self.bsz = bsz
         print("para_limit before change:" + str(para_limit))
