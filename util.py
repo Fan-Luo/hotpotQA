@@ -21,11 +21,9 @@ def prepro(token):
 
 class DataIterator(object):
     def __init__(self, buckets, bsz, para_limit, ques_limit, char_limit, shuffle, sent_limit):
-        self.num_workers = 0
         self.buckets = buckets
         self.bsz = bsz
-        print("para_limit before change:" + str(para_limit))
-        print("ques_limit before change:" + str(ques_limit))
+
         if para_limit is not None and ques_limit is not None:
             self.para_limit = para_limit
             self.ques_limit = ques_limit
@@ -37,10 +35,6 @@ class DataIterator(object):
                     ques_limit = max(ques_limit, dp['ques_idxs'].size(0))
             self.para_limit, self.ques_limit = para_limit, ques_limit
             
-            
-        print("para_limit after change:" + str(self.para_limit))
-        print("ques_limit after change:" + str(self.ques_limit))
-        
         self.char_limit = char_limit
         self.sent_limit = sent_limit
 
@@ -117,8 +111,7 @@ class DataIterator(object):
                         start_mapping[i, start, j] = 1
                         end_mapping[i, end-1, j] = 1
                         all_mapping[i, start:end, j] = 1
-                        if cur_batch[i]['sp_labled']:  # if this example's sp is labeld, assign true/false; otherwise, leave as IGNORE_INDEX so that loss_2 (sp_loss) would not compute
-                            is_support[i, j] = int(is_sp_flag)
+                        is_support[i, j] = int(is_sp_flag)
 
                 max_sent_cnt = max(max_sent_cnt, len(cur_batch[i]['start_end_facts']))
 
@@ -144,31 +137,9 @@ class DataIterator(object):
                 'end_mapping': end_mapping[:cur_bsz, :max_c_len, :max_sent_cnt],
                 'all_mapping': all_mapping[:cur_bsz, :max_c_len, :max_sent_cnt]}
 
-def get_buckets(record_file, sp_loss_portion):
+def get_buckets(record_file):
     # datapoints = pickle.load(open(record_file, 'rb'))
     datapoints = torch.load(record_file)
-
-    def labeled_sp_index(datapoints, sp_loss_portion):
-        labeled_idxs = []  # examples to compute sp_loss
-        total_examples = len(datapoints)
-        idxs = list(range(total_examples))
-        random.shuffle(idxs)  
-    
-        # sp_loss_portion is a float number between 0 and 1 indicating percentage
-        percent_labels = float(sp_loss_portion)
-        num_labels = int(percent_labels * total_examples )  
-    
-        for idx in idxs:
-            if num_labels > 0:
-                labeled_idxs.append(idx)
-                num_labels -= 1
-
-        return labeled_idxs
-        
-    print("Choosing ", sp_loss_portion, " OF EXAMPLES from", record_file, "randomly to compute sp_loss from supporting facts supervision ")
-    labeled_idxs = labeled_sp_index(datapoints, sp_loss_portion)
-    for i, datapoint in enumerate(datapoints):
-        datapoint['sp_labled'] = (i in labeled_idxs)
  
     return [datapoints]
 

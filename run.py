@@ -63,8 +63,8 @@ def train(config):
         logging('    - {} : {}'.format(k, v))
 
     logging("Building model...")
-    train_buckets = get_buckets(config.train_record_file, config.sp_loss_portion)
-    dev_buckets = get_buckets(config.dev_record_file, 0.0)
+    train_buckets = get_buckets(config.train_record_file)
+    dev_buckets = get_buckets(config.dev_record_file)
 
     def build_train_iterator():
         print("para_size as parameter in build_train_iterator:" + str(config.para_limit))
@@ -116,7 +116,11 @@ def train(config):
             logit1, logit2, predict_type, predict_support = model(context_idxs, ques_idxs, context_char_idxs, ques_char_idxs, context_lens, start_mapping, end_mapping, all_mapping, return_yp=False)
             loss_1 = (nll_sum(predict_type, q_type) + nll_sum(logit1, y1) + nll_sum(logit2, y2)) / context_idxs.size(0)
             loss_2 = nll_average(predict_support.view(-1, 2), is_support.view(-1))
-            loss = loss_1 + config.sp_lambda * loss_2
+            # config.sp_loss_portion defines how many batches ignore sp_loss in train
+            if random.random() < config.sp_loss_portion:  
+                loss = loss_1 + config.sp_lambda * loss_2
+            else:
+                loss = loss_1
 
             optimizer.zero_grad()
             loss.backward()
@@ -276,13 +280,13 @@ def test(config):
                 f_log.write(s + '\n')
 
     if config.data_split == 'dev':
-        dev_buckets = get_buckets(config.dev_record_file, 0.0)
+        dev_buckets = get_buckets(config.dev_record_file)
         para_limit = config.para_limit
         ques_limit = config.ques_limit
     elif config.data_split == 'test':
         para_limit = None
         ques_limit = None
-        dev_buckets = get_buckets(config.test_record_file, 0.0)
+        dev_buckets = get_buckets(config.test_record_file)
 
     def build_dev_iterator():
         return DataIterator(dev_buckets, config.batch_size, para_limit,
