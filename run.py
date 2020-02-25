@@ -115,10 +115,12 @@ def train(config):
 
             logit1, logit2, predict_type, predict_support = model(context_idxs, ques_idxs, context_char_idxs, ques_char_idxs, context_lens, start_mapping, end_mapping, all_mapping, return_yp=False)
             loss_1 = (nll_sum(predict_type, q_type) + nll_sum(logit1, y1) + nll_sum(logit2, y2)) / context_idxs.size(0)
-            loss_2 = nll_average(predict_support.view(-1, 2), is_support.view(-1))
+            
             # config.sp_loss_portion defines how many batches ignore sp_loss in train
             if random.random() < config.sp_loss_portion:  
+                loss_2 = nll_average(predict_support.view(-1, 2), is_support.view(-1))
                 loss = loss_1 + config.sp_lambda * loss_2
+                total_sp_loss += loss_2.data[0]
             else:
                 loss = loss_1
 
@@ -128,7 +130,7 @@ def train(config):
 
             total_loss += loss.data[0]
             total_ans_loss += loss_1.data[0]
-            total_sp_loss += loss_2.data[0]
+            
             global_step += 1
 
             if global_step % config.period == 0:
@@ -171,12 +173,14 @@ def train(config):
                             stop_train = True
                             break
                         cur_patience = 0
-        if stop_train: break
+        
 
-        model.eval()
-        metrics = evaluate_batch(build_dev_iterator(), model, 0, dev_eval_file, config)
-        model.train()
-        experiment.log_metrics({'dev loss after epoch':metrics['loss'], 'answer loss after epoch':metrics['ans_loss'] ,'supporting facts loss after epoch':metrics['sp_loss'], 'EM after epoch':metrics['exact_match'], 'F1 after epoch': metrics['f1']}, step=epoch)
+        # model.eval()
+        # metrics = evaluate_batch(build_dev_iterator(), model, 0, dev_eval_file, config)
+        # model.train()
+        # experiment.log_metrics({'dev loss after epoch':metrics['loss'], 'answer loss after epoch':metrics['ans_loss'] ,'supporting facts loss after epoch':metrics['sp_loss'], 'EM after epoch':metrics['exact_match'], 'F1 after epoch': metrics['f1']}, step=epoch)
+    
+        if stop_train: break
     logging('best_dev_F1 {}'.format(best_dev_F1))
 
 def evaluate_batch(data_source, model, max_batches, eval_file, config):
