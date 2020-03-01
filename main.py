@@ -1,7 +1,11 @@
+from comet_ml import Experiment
 import os
 from prepro import prepro
 from run import train, test
 import argparse
+import numpy as np
+import random
+import torch
 
 parser = argparse.ArgumentParser()
 
@@ -66,6 +70,7 @@ parser.add_argument('--data_split', type=str, default='train')
 parser.add_argument('--fullwiki', action='store_true')
 parser.add_argument('--prediction_file', type=str)
 parser.add_argument('--sp_threshold', type=float, default=0.3)
+parser.add_argument('--run_name', type=str, default="run")
 
 config = parser.parse_args()
 
@@ -79,6 +84,23 @@ config.test_record_file = _concat(config.test_record_file)
 # config.train_eval_file = _concat(config.train_eval_file)
 config.dev_eval_file = _concat(config.dev_eval_file)
 config.test_eval_file = _concat(config.test_eval_file)
+
+def reproducibility(seed):
+    """
+    To make the code reproducible, set the seeds manually.
+    Several random factors are from: (1) python (2) numpy (3)pytorch (4)GPU
+    
+    :param seed:
+    :return:
+    """
+    os.environ['PYTHONHASHSEED'] = str(seed)
+    random.seed(seed)
+    np.random.seed(seed)
+    torch.manual_seed(seed)
+    torch.cuda.manual_seed_all(seed)
+    torch.cuda.manual_seed(seed)
+
+reproducibility(config.seed)
 
 if config.mode == 'train':
     train(config)

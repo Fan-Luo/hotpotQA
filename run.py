@@ -1,3 +1,4 @@
+from comet_ml import Experiment
 import ujson as json
 import numpy as np
 from tqdm import tqdm
@@ -35,6 +36,9 @@ nll_average = nn.CrossEntropyLoss(size_average=True, ignore_index=IGNORE_INDEX)
 nll_all = nn.CrossEntropyLoss(reduce=False, ignore_index=IGNORE_INDEX)
 
 def train(config):
+    experiment = Experiment(api_key="Q8LzfxMlAfA3ABWwq9fJDoR6r", project_name="hotpot", workspace="fan-luo")
+    experiment.set_name(config.run_name)
+
     with open(config.word_emb_file, "r") as fh:
         word_mat = np.array(json.load(fh), dtype=np.float32)
     with open(config.char_emb_file, "r") as fh:
@@ -44,10 +48,6 @@ def train(config):
     with open(config.idx2word_file, 'r') as fh:
         idx2word_dict = json.load(fh)
 
-    random.seed(config.seed)
-    np.random.seed(config.seed)
-    torch.manual_seed(config.seed)
-    torch.cuda.manual_seed_all(config.seed)
 
     config.save = '{}-{}'.format(config.save, time.strftime("%Y%m%d-%H%M%S"))
     create_exp_dir(config.save, scripts_to_save=['run.py', 'model.py', 'util.py', 'sp_model.py'])
@@ -80,11 +80,15 @@ def train(config):
     logging('nparams {}'.format(sum([p.nelement() for p in model.parameters() if p.requires_grad])))
     ori_model = model.cuda()
     model = nn.DataParallel(ori_model)
+    print("next(model.parameters()).is_cuda: " + str(next(model.parameters()).is_cuda));
+    print("next(ori_model.parameters()).is_cuda: " + str(next(ori_model.parameters()).is_cuda));
 
     lr = config.init_lr
     optimizer = optim.SGD(filter(lambda p: p.requires_grad, model.parameters()), lr=config.init_lr)
     cur_patience = 0
     total_loss = 0
+    total_ans_loss = 0
+    total_sp_loss = 0
     global_step = 0
     best_dev_F1 = None
     stop_train = False
@@ -117,13 +121,20 @@ def train(config):
             optimizer.step()
 
             total_loss += loss.data[0]
+            total_ans_loss += loss_1.data[0]
+            total_sp_loss += loss_2.data[0]
             global_step += 1
 
             if global_step % config.period == 0:
                 cur_loss = total_loss / config.period
+                cur_ans_loss = total_ans_loss / config.period
+                cur_sp_loss = total_sp_loss / config.period
                 elapsed = time.time() - start_time
-                logging('| epoch {:3d} | step {:6d} | lr {:05.5f} | ms/batch {:5.2f} | train loss {:8.3f}'.format(epoch, global_step, lr, elapsed*1000/config.period, cur_loss))
+                logging('| epoch {:3d} | step {:6d} | lr {:05.5f} | ms/batch {:5.2f} | train loss {:8.3f} | answer loss {:8.3f} | supporting facts loss {:8.3f} '.format(epoch, global_step, lr, elapsed*1000/config.period, cur_loss, cur_ans_loss, cur_sp_loss))
+                experiment.log_metrics({'train loss':cur_loss, 'train answer loss':cur_ans_loss ,'train supporting facts loss':cur_sp_loss }, step=global_step)
                 total_loss = 0
+                total_ans_loss = 0
+                total_sp_loss = 0
                 start_time = time.time()
 
             if global_step % config.checkpoint == 0:
@@ -132,9 +143,10 @@ def train(config):
                 model.train()
 
                 logging('-' * 89)
-                logging('| eval {:6d} in epoch {:3d} | time: {:5.2f}s | dev loss {:8.3f} | EM {:.4f} | F1 {:.4f}'.format(global_step//config.checkpoint,
-                    epoch, time.time()-eval_start_time, metrics['loss'], metrics['exact_match'], metrics['f1']))
+                logging('| eval {:6d} in epoch {:3d} | time: {:5.2f}s | dev loss {:8.3f} | answer loss {:8.3f} | supporting facts loss {:8.3f} | EM {:.4f} | F1 {:.4f}'.format(global_step//config.checkpoint,
+                    epoch, time.time()-eval_start_time, metrics['loss'], metrics['ans_loss'], metrics['sp_loss'], metrics['exact_match'], metrics['f1']))
                 logging('-' * 89)
+                experiment.log_metrics({'dev loss':metrics['loss'], 'dev answer loss':metrics['ans_loss'] ,'dev supporting facts loss':metrics['sp_loss'], 'EM':metrics['exact_match'], 'F1': metrics['f1']}, step=global_step)
 
                 eval_start_time = time.time()
 
@@ -159,7 +171,7 @@ def train(config):
 def evaluate_batch(data_source, model, max_batches, eval_file, config):
     answer_dict = {}
     sp_dict = {}
-    total_loss, step_cnt = 0, 0
+    total_loss, total_ans_loss, total_sp_loss, step_cnt = 0, 0, 0, 0
     iter = data_source
     for step, data in enumerate(iter):
         if step >= max_batches and max_batches > 0: break
@@ -178,15 +190,23 @@ def evaluate_batch(data_source, model, max_batches, eval_file, config):
         all_mapping = Variable(data['all_mapping'], volatile=True)
 
         logit1, logit2, predict_type, predict_support, yp1, yp2 = model(context_idxs, ques_idxs, context_char_idxs, ques_char_idxs, context_lens, start_mapping, end_mapping, all_mapping, return_yp=True)
-        loss = (nll_sum(predict_type, q_type) + nll_sum(logit1, y1) + nll_sum(logit2, y2)) / context_idxs.size(0) + config.sp_lambda * nll_average(predict_support.view(-1, 2), is_support.view(-1))
+        loss_1 = (nll_sum(predict_type, q_type) + nll_sum(logit1, y1) + nll_sum(logit2, y2)) / context_idxs.size(0) 
+        loss_2 = nll_average(predict_support.view(-1, 2), is_support.view(-1))
+        loss = loss_1 + config.sp_lambda * loss_2
         answer_dict_ = convert_tokens(eval_file, data['ids'], yp1.data.cpu().numpy().tolist(), yp2.data.cpu().numpy().tolist(), np.argmax(predict_type.data.cpu().numpy(), 1))
         answer_dict.update(answer_dict_)
 
         total_loss += loss.data[0]
+        total_ans_loss += loss_1.data[0]
+        total_sp_loss += loss_2.data[0]
         step_cnt += 1
     loss = total_loss / step_cnt
+    ans_loss = total_ans_loss / step_cnt
+    sp_loss = total_sp_loss / step_cnt
     metrics = evaluate(eval_file, answer_dict)
     metrics['loss'] = loss
+    metrics['ans_loss'] = ans_loss
+    metrics['sp_loss'] = sp_loss
 
     return metrics
 
@@ -235,11 +255,6 @@ def test(config):
             dev_eval_file = json.load(fh)
     with open(config.idx2word_file, 'r') as fh:
         idx2word_dict = json.load(fh)
-
-    random.seed(config.seed)
-    np.random.seed(config.seed)
-    torch.manual_seed(config.seed)
-    torch.cuda.manual_seed_all(config.seed)
 
     def logging(s, print_=True, log_=True):
         if print_:
