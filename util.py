@@ -137,10 +137,15 @@ class DataIterator(object):
                 'end_mapping': end_mapping[:cur_bsz, :max_c_len, :max_sent_cnt],
                 'all_mapping': all_mapping[:cur_bsz, :max_c_len, :max_sent_cnt]}
 
-def get_buckets(record_file):
+def get_buckets(record_file, example_portion=1.0):
     # datapoints = pickle.load(open(record_file, 'rb'))
     datapoints = torch.load(record_file)
- 
+    total_examples = len(datapoints)
+    # example_portion is a float number between 0 and 1 indicating percentage    
+    percent = float(example_portion)
+    num_examples = int(percent * total_examples )  
+    random.shuffle(datapoints)
+    datapoints = datapoints[:num_examples]
     return [datapoints]
 
 

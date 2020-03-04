@@ -71,6 +71,7 @@ parser.add_argument('--fullwiki', action='store_true')
 parser.add_argument('--prediction_file', type=str)
 parser.add_argument('--sp_threshold', type=float, default=0.3)
 parser.add_argument('--sp_loss_portion', type=float, default=1.0)
+parser.add_argument('--example_portion', type=float, default=1.0)
 parser.add_argument('--run_name', type=str, default="run")
 
 config = parser.parse_args()

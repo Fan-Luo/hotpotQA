@@ -63,7 +63,7 @@ def train(config):
         logging('    - {} : {}'.format(k, v))
 
     logging("Building model...")
-    train_buckets = get_buckets(config.train_record_file)
+    train_buckets = get_buckets(config.train_record_file, config.example_portion)
     dev_buckets = get_buckets(config.dev_record_file)
 
     def build_train_iterator():
