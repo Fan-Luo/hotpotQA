@@ -12,21 +12,21 @@ from sp_model import SPModel
 from util import convert_tokens, evaluate
 from util import get_buckets, DataIterator, IGNORE_INDEX
 import time
-import shutil
 import random
 import torch
 from torch.autograd import Variable
 import sys
 from torch.nn import functional as F
 from hotpot_evaluate_v1 import eval as eval_all_metrics
+from hotpot_evaluate_v1 import update_answer, update_sp
 
 nll_sum = nn.CrossEntropyLoss(size_average=False, ignore_index=IGNORE_INDEX)
 nll_average = nn.CrossEntropyLoss(size_average=True, ignore_index=IGNORE_INDEX)
 nll_all = nn.CrossEntropyLoss(reduce=False, ignore_index=IGNORE_INDEX)
 
 def train(config, train_buckets, validation_buckets, iteration_idx):
-    experiment = Experiment(api_key="Q8LzfxMlAfA3ABWwq9fJDoR6r", project_name="hotpot", workspace="fan-luo")
-    experiment.set_name(config.run_name + "iteration"+ iteration_idx)
+    experiment = Experiment(api_key="Q8LzfxMlAfA3ABWwq9fJDoR6r", project_name="hotpotqa-al", workspace="fan-luo")
+    experiment.set_name(config.run_name + "iteration"+ str(iteration_idx))
 
     with open(config.word_emb_file, "r") as fh:
         word_mat = np.array(json.load(fh), dtype=np.float32)
@@ -205,7 +205,7 @@ def evaluate_batch(data_source, model, max_batches, eval_file, config):
     return metrics
 
 def predict(data_source, model, eval_file, config, prediction_file):
-    predictions = {'softmax_logit1' = numpy.array([]), 'softmax_logit2' = numpy.array([]), 'softmax_type' =numpy.array([]), 'predict_support_np' =numpy.array([]), 'qids' =numpy.array([])}
+    predictions = dict.fromkeys(['softmax_logit1', 'softmax_logit2', 'softmax_type', 'predict_support_np', 'qids'], numpy.array([]))
     answer_dict = {}
     sp_dict = {}
     sp_th = config.sp_threshold
@@ -231,7 +231,7 @@ def predict(data_source, model, eval_file, config, prediction_file):
             predictions['softmax_type'] = numpy.append( predictions['softmax_type'] , softmax_type)
             predictions['predict_support_np'] = numpy.append( predictions['predict_support_np'] , predict_support_np)
             predictions['qids'] = numpy.append( predictions['qids'] , data['ids'])
-        else
+        else:
             answer_dict_ = convert_tokens(eval_file, data['ids'], yp1.data.cpu().numpy().tolist(), yp2.data.cpu().numpy().tolist(), np.argmax(predict_type.data.cpu().numpy(), 1))
             answer_dict.update(answer_dict_)
     
@@ -294,7 +294,7 @@ def load_model_data(config, data_split):
 
     if data_split == 'train':
         return model, eval_file, para_limit, ques_limit
-    elif data_split == 'test' || data_split == 'dev':      
+    else:      
         return model, buckets, eval_file, para_limit, ques_limit
 
 def test(config, data_split, iteration_idx):
@@ -322,3 +322,4 @@ def run_predict_unlabel(config, buckets):
 def run_evaluate_dev(config, iteration_idx):
     prediction_file = test(config, 'dev', iteration_idx)
     eval_all_metrics(prediction_file, config.dev_gold)
+         

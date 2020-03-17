@@ -1,6 +1,7 @@
 from comet_ml import Experiment
 import os
 from prepro import prepro
+from active_learning import active_train
 from run import test
 import argparse
 import numpy as np
@@ -64,7 +65,7 @@ parser.add_argument('--hidden', type=int, default=80)
 parser.add_argument('--char_hidden', type=int, default=100)
 parser.add_argument('--patience', type=int, default=1)
 parser.add_argument('--seed', type=int, default=13)
-parser.add_argument('--initial_size', type=int, help="initial sample size for active learning")
+parser.add_argument('--initial_size', type=int, default=5000, help="initial sample size for active learning")
 parser.add_argument('--initial_idx_path', '-idx', type=str,default=None, help="path to a folder with a pickle file with the initial indices of the labeled set")
 parser.add_argument('--method', type=str,
                    choices={'Random','CoreSet','CoreSetMIP','Discriminative','DiscriminativeLearned','DiscriminativeAE','DiscriminativeStochastic','Uncertainty','Bayesian','UncertaintyEntropy','BayesianEntropy','EGL','Adversarial'},
@@ -73,8 +74,8 @@ parser.add_argument('--method2', type=str,
                    choices={None,'Random','CoreSet','CoreSetMIP','Discriminative','DiscriminativeLearned','DiscriminativeAE','DiscriminativeStochastic','Uncertainty','Bayesian','UncertaintyEntropy','BayesianEntropy','EGL','Adversarial'},
                    default=None,
                    help="second sampling method ('Random','CoreSet','CoreSetMIP','Discriminative','DiscriminativeLearned','DiscriminativeAE','DiscriminativeStochastic','Uncertainty','Bayesian','UncertaintyEntropy','BayesianEntropy','EGL','Adversarial')")
-parser.add_argument('iterations', type=int, default=20)
-parser.add_argument('label_batch_size', type=int, default=1000)
+parser.add_argument('--iterations', type=int, default=20)
+parser.add_argument('--label_batch_size', type=int, default=1000)
 parser.add_argument('--sp_lambda', type=float, default=0.0)
 parser.add_argument('--data_split', type=str, default='train')
 parser.add_argument('--fullwiki', action='store_true')

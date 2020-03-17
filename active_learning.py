@@ -9,6 +9,8 @@ import torch
 import gc
 from util import get_buckets
 import operator
+import time
+import shutil
 
 def get_unlabeled_idx(X_train, labeled_idx):
     """
@@ -57,7 +59,8 @@ class RandomSampling():
     """
     A random sampling query strategy baseline.
     """
-
+    def __init__(self):
+        pass
     # def __init__(self, model):
     #     super().__init__(model)
 
@@ -73,14 +76,14 @@ class UncertaintySampling():
 
     # def __init__(self, model):
     #     super().__init__(model)
-
+    def __init__(self):
+        pass
     def query(self, config, X_train, labeled_idx, amount):
 
         unlabeled_idx = get_unlabeled_idx(X_train, labeled_idx)
-        with open(config.train_eval_file, "r") as fh:
-            validation_eval_file = json.load(fh)
         unlabeled_train_datapoints = list(operator.itemgetter(*unlabeled_idx)(X_train))    
         predictions = run_predict_unlabel(config, [unlabeled_train_datapoints] )
+        
         # compare predictions[qids] with unlabeled_train_datapoints['id'] to ensure the ordered is same 
         print("predictions[qids][:10]", predictions[qids][:10])
         print("predictions[qids].shape", predictions[qids].shape)
@@ -121,7 +124,7 @@ class CombinedSampling():
         self.method2.update_model()
 
 
-def get_initial_idx(initial_idx_path, initial_size, seed):
+def get_initial_idx(X_train, initial_idx_path, initial_size, seed):
     # load initial indices:
     if initial_idx_path is not None:
         idx_path = os.path.join(initial_idx_path, '{size}_{seed}.pkl'.format(size=initial_size, seed=seed))
@@ -133,7 +136,7 @@ def get_initial_idx(initial_idx_path, initial_size, seed):
     return labeled_idx
 
 
-def set_query_method(config, method_name, method2_name):
+def set_query_method(method_name, method2_name=None):
     # set the first query method:
     if method_name == 'Random':
         method = RandomSampling
@@ -149,7 +152,7 @@ def set_query_method(config, method_name, method2_name):
     #     method = DiscriminativeAutoencoderSampling
     # elif method == 'DiscriminativeStochastic':
     #     method = DiscriminativeStochasticSampling
-    elif method == 'Uncertainty':
+    elif method_name == 'Uncertainty':
         method = UncertaintySampling
     # elif method == 'Bayesian':
     #     method = BayesianUncertaintySampling
@@ -165,7 +168,7 @@ def set_query_method(config, method_name, method2_name):
     # set the second query method:
     if method2_name is not None:
         print("Using Two Methods...")
-        if method2 == 'Random':
+        if method2_name == 'Random':
             method2 = RandomSampling
         # elif method2 == 'CoreSet':
         #     method2 = CoreSetSampling
@@ -179,7 +182,7 @@ def set_query_method(config, method_name, method2_name):
         #     method2 = DiscriminativeAutoencoderSampling
         # elif method2 == 'DiscriminativeStochastic':
         #     method2 = DiscriminativeStochasticSampling
-        elif method2 == 'Uncertainty':
+        elif method2_name == 'Uncertainty':
             method2 = UncertaintySampling
         # elif method2 == 'Bayesian':
         #     method2 = BayesianUncertaintySampling
@@ -225,7 +228,7 @@ def evaluate_sample(config, training_function, X_train, iteration_idx):
     run_evaluate_dev(config, iteration_idx)
 
     
-def active_train(config)    
+def active_train(config):
 
     random.seed(config.seed)
     np.random.seed(config.seed)
@@ -239,9 +242,9 @@ def active_train(config)
     random.shuffle(train_buckets)
 
     # warm-sart
-    labeled_idx = get_initial_idx(config.initial_idx_path, config.initial_size, config.seed)
+    labeled_idx = get_initial_idx(train_buckets[0], config.initial_idx_path, config.initial_size, config.seed)
     query_method = set_query_method(config.method, config.method2)
-    evaluate_sample(config, train, list(operator.itemgetter(*labeled_idx)(train_buckets[0])), test, -1) # will print evaluation result
+    evaluate_sample(config, train, list(operator.itemgetter(*labeled_idx)(train_buckets[0])), -1) # will print evaluation result
     # query_method.update_model(model)
     
     # iteratively query
@@ -262,7 +265,7 @@ def active_train(config)
         # queries.append(new_idx)
 
         # evaluate the new sample:
-        evaluate_sample(config, train, list(operator.itemgetter(*labeled_idx)(train_buckets[0])), test, dev_buckets, i) 
+        evaluate_sample(config, train, list(operator.itemgetter(*labeled_idx)(train_buckets[0])), i) 
         # query_method.update_model(model)
         metrics.append(metric)
     
