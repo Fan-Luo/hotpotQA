@@ -1,7 +1,7 @@
 from comet_ml import Experiment
 import os
 from prepro import prepro
-from run import train, test
+from run import test
 import argparse
 import numpy as np
 import random
@@ -34,6 +34,7 @@ parser.add_argument('--word_emb_file', type=str, default=word_emb_file)
 parser.add_argument('--char_emb_file', type=str, default=char_emb_file)
 parser.add_argument('--train_eval_file', type=str, default=train_eval)
 parser.add_argument('--dev_eval_file', type=str, default=dev_eval)
+parser.add_argument('--validation_eval_file', type=str, default=train_eval)
 parser.add_argument('--test_eval_file', type=str, default=test_eval)
 parser.add_argument('--word2idx_file', type=str, default=word2idx_file)
 parser.add_argument('--char2idx_file', type=str, default=char2idx_file)
@@ -63,12 +64,22 @@ parser.add_argument('--hidden', type=int, default=80)
 parser.add_argument('--char_hidden', type=int, default=100)
 parser.add_argument('--patience', type=int, default=1)
 parser.add_argument('--seed', type=int, default=13)
-
+parser.add_argument('--initial_size', type=int, help="initial sample size for active learning")
+parser.add_argument('--initial_idx_path', '-idx', type=str,default=None, help="path to a folder with a pickle file with the initial indices of the labeled set")
+parser.add_argument('--method', type=str,
+                   choices={'Random','CoreSet','CoreSetMIP','Discriminative','DiscriminativeLearned','DiscriminativeAE','DiscriminativeStochastic','Uncertainty','Bayesian','UncertaintyEntropy','BayesianEntropy','EGL','Adversarial'},
+                   help="sampling method ('Random','CoreSet','CoreSetMIP','Discriminative','DiscriminativeLearned','DiscriminativeAE','DiscriminativeStochastic','Uncertainty','Bayesian','UncertaintyEntropy','BayesianEntropy','EGL','Adversarial')")
+parser.add_argument('--method2', type=str,
+                   choices={None,'Random','CoreSet','CoreSetMIP','Discriminative','DiscriminativeLearned','DiscriminativeAE','DiscriminativeStochastic','Uncertainty','Bayesian','UncertaintyEntropy','BayesianEntropy','EGL','Adversarial'},
+                   default=None,
+                   help="second sampling method ('Random','CoreSet','CoreSetMIP','Discriminative','DiscriminativeLearned','DiscriminativeAE','DiscriminativeStochastic','Uncertainty','Bayesian','UncertaintyEntropy','BayesianEntropy','EGL','Adversarial')")
+parser.add_argument('iterations', type=int, default=20)
+parser.add_argument('label_batch_size', type=int, default=100)
 parser.add_argument('--sp_lambda', type=float, default=0.0)
-
 parser.add_argument('--data_split', type=str, default='train')
 parser.add_argument('--fullwiki', action='store_true')
-parser.add_argument('--prediction_file', type=str)
+# parser.add_argument('--prediction_file', type=str)
+parser.add_argument('--dev_gold', type=str, default='hotpot_dev_distractor_v1.json')
 parser.add_argument('--sp_threshold', type=float, default=0.3)
 parser.add_argument('--sp_loss_portion', type=float, default=1.0)
 parser.add_argument('--example_portion', type=float, default=1.0)
@@ -105,10 +116,10 @@ def reproducibility(seed):
 reproducibility(config.seed)
 
 if config.mode == 'train':
-    train(config)
+    active_train(config)
 elif config.mode == 'prepro':
     prepro(config)
 elif config.mode == 'test':
-    test(config)
+    test(config, config.data_split)
 elif config.mode == 'count':
     cnt_len(config)

@@ -123,6 +123,7 @@ def eval(prediction_file, gold_file):
     for k in metrics.keys():
         metrics[k] /= N
 
+    print(prediction_file)
     print(metrics)
 
 if __name__ == '__main__':

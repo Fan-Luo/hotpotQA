@@ -18,39 +18,28 @@ import torch
 from torch.autograd import Variable
 import sys
 from torch.nn import functional as F
-
-def create_exp_dir(path, scripts_to_save=None):
-    if not os.path.exists(path):
-        os.mkdir(path)
-
-    print('Experiment dir : {}'.format(path))
-    if scripts_to_save is not None:
-        if not os.path.exists(os.path.join(path, 'scripts')):
-            os.mkdir(os.path.join(path, 'scripts'))
-        for script in scripts_to_save:
-            dst_file = os.path.join(path, 'scripts', os.path.basename(script))
-            shutil.copyfile(script, dst_file)
+from hotpot_evaluate_v1 import eval as eval_all_metrics
 
 nll_sum = nn.CrossEntropyLoss(size_average=False, ignore_index=IGNORE_INDEX)
 nll_average = nn.CrossEntropyLoss(size_average=True, ignore_index=IGNORE_INDEX)
 nll_all = nn.CrossEntropyLoss(reduce=False, ignore_index=IGNORE_INDEX)
 
-def train(config):
+def train(config, train_buckets, validation_buckets, iteration_idx):
     experiment = Experiment(api_key="Q8LzfxMlAfA3ABWwq9fJDoR6r", project_name="hotpot", workspace="fan-luo")
-    experiment.set_name(config.run_name)
+    experiment.set_name(config.run_name + "iteration"+ iteration_idx)
 
     with open(config.word_emb_file, "r") as fh:
         word_mat = np.array(json.load(fh), dtype=np.float32)
     with open(config.char_emb_file, "r") as fh:
         char_mat = np.array(json.load(fh), dtype=np.float32)
-    with open(config.dev_eval_file, "r") as fh:
-        dev_eval_file = json.load(fh)
+    with open(config.validation_eval_file, "r") as fh:   # validation is 0.2 of train,  its eval file is actually 'train_eval.json'. It uses an id field to recognize question 
+        validation_eval_file = json.load(fh)
     with open(config.idx2word_file, 'r') as fh:
         idx2word_dict = json.load(fh)
 
 
-    config.save = '{}-{}'.format(config.save, time.strftime("%Y%m%d-%H%M%S"))
-    create_exp_dir(config.save, scripts_to_save=['run.py', 'model.py', 'util.py', 'sp_model.py'])
+    # config.save = '{}-{}'.format(config.save, time.strftime("%Y%m%d-%H%M%S"))
+    # create_exp_dir(config.save, scripts_to_save=['run.py', 'model.py', 'util.py', 'sp_model.py'])
     def logging(s, print_=True, log_=True):
         if print_:
             print(s)
@@ -62,17 +51,17 @@ def train(config):
     for k, v in config.__dict__.items():
         logging('    - {} : {}'.format(k, v))
 
-    logging("Building model...")
-    train_buckets = get_buckets(config.train_record_file, config.example_portion)
-    dev_buckets = get_buckets(config.dev_record_file)
+    logging("Train a model...")
+    # train_buckets = get_buckets(config.train_record_file, config.example_portion)
+    # dev_buckets = get_buckets(config.dev_record_file)
 
     def build_train_iterator():
         print("para_size as parameter in build_train_iterator:" + str(config.para_limit))
         print("ques_size as parameter in build_train_iterator:" + str(config.ques_limit))
         return DataIterator(train_buckets, config.batch_size, config.para_limit, config.ques_limit, config.char_limit, True, config.sent_limit)
 
-    def build_dev_iterator():
-        return DataIterator(dev_buckets, config.batch_size, config.para_limit, config.ques_limit, config.char_limit, False, config.sent_limit)
+    def build_validation_iterator():
+        return DataIterator(validation_buckets, config.batch_size, config.para_limit, config.ques_limit, config.char_limit, False, config.sent_limit)
 
     if config.sp_lambda > 0:
         model = SPModel(config, word_mat, char_mat)
@@ -92,7 +81,7 @@ def train(config):
     total_ans_loss = 0
     total_sp_loss = 0
     global_step = 0
-    best_dev_F1 = None
+    best_validation_F1 = None
     stop_train = False
     start_time = time.time()
     eval_start_time = time.time()
@@ -147,20 +136,20 @@ def train(config):
 
             if global_step % config.checkpoint == 0:
                 model.eval()
-                metrics = evaluate_batch(build_dev_iterator(), model, 0, dev_eval_file, config)
+                metrics = evaluate_batch(build_validation_iterator(), model, 0, validation_eval_file, config)
                 model.train()
 
                 logging('-' * 89)
-                logging('| eval {:6d} in epoch {:3d} | time: {:5.2f}s | dev loss {:8.3f} | answer loss {:8.3f} | supporting facts loss {:8.3f} | EM {:.4f} | F1 {:.4f}'.format(global_step//config.checkpoint,
+                logging('| eval {:6d} in epoch {:3d} | time: {:5.2f}s | validation loss {:8.3f} | answer loss {:8.3f} | supporting facts loss {:8.3f} | EM {:.4f} | F1 {:.4f}'.format(global_step//config.checkpoint,
                     epoch, time.time()-eval_start_time, metrics['loss'], metrics['ans_loss'], metrics['sp_loss'], metrics['exact_match'], metrics['f1']))
                 logging('-' * 89)
-                experiment.log_metrics({'dev loss':metrics['loss'], 'dev answer loss':metrics['ans_loss'] ,'dev supporting facts loss':metrics['sp_loss'], 'EM':metrics['exact_match'], 'F1': metrics['f1']}, step=global_step)
+                experiment.log_metrics({'validation loss':metrics['loss'], 'validation answer loss':metrics['ans_loss'] ,'validation supporting facts loss':metrics['sp_loss'], 'EM':metrics['exact_match'], 'F1': metrics['f1']}, step=global_step)
 
                 eval_start_time = time.time()
 
-                dev_F1 = metrics['f1']
-                if best_dev_F1 is None or dev_F1 > best_dev_F1:
-                    best_dev_F1 = dev_F1
+                validation_F1 = metrics['f1']
+                if best_validation_F1 is None or validation_F1 > best_validation_F1:
+                    best_validation_F1 = validation_F1
                     torch.save(ori_model.state_dict(), os.path.join(config.save, 'model.pt'))
                     cur_patience = 0
                 else:
@@ -173,15 +162,9 @@ def train(config):
                             stop_train = True
                             break
                         cur_patience = 0
-        
-
-        # model.eval()
-        # metrics = evaluate_batch(build_dev_iterator(), model, 0, dev_eval_file, config)
-        # model.train()
-        # experiment.log_metrics({'dev loss after epoch':metrics['loss'], 'answer loss after epoch':metrics['ans_loss'] ,'supporting facts loss after epoch':metrics['sp_loss'], 'EM after epoch':metrics['exact_match'], 'F1 after epoch': metrics['f1']}, step=epoch)
-    
+   
         if stop_train: break
-    logging('best_dev_F1 {}'.format(best_dev_F1))
+    logging('best_validation_F1 {}'.format(best_validation_F1))
 
 def evaluate_batch(data_source, model, max_batches, eval_file, config):
     answer_dict = {}
@@ -226,6 +209,7 @@ def evaluate_batch(data_source, model, max_batches, eval_file, config):
     return metrics
 
 def predict(data_source, model, eval_file, config, prediction_file):
+    predictions = {'softmax_logit1' = numpy.array([]), 'softmax_logit2' = numpy.array([]), 'softmax_type' =numpy.array([]), 'predict_support_np' =numpy.array([]), 'qids' =numpy.array([])}
     answer_dict = {}
     sp_dict = {}
     sp_th = config.sp_threshold
@@ -240,61 +224,69 @@ def predict(data_source, model, eval_file, config, prediction_file):
         all_mapping = Variable(data['all_mapping'], volatile=True)
 
         logit1, logit2, predict_type, predict_support, yp1, yp2 = model(context_idxs, ques_idxs, context_char_idxs, ques_char_idxs, context_lens, start_mapping, end_mapping, all_mapping, return_yp=True)
-        answer_dict_ = convert_tokens(eval_file, data['ids'], yp1.data.cpu().numpy().tolist(), yp2.data.cpu().numpy().tolist(), np.argmax(predict_type.data.cpu().numpy(), 1))
-        answer_dict.update(answer_dict_)
-
         predict_support_np = torch.sigmoid(predict_support[:, :, 1]).data.cpu().numpy()
-        for i in range(predict_support_np.shape[0]):
-            cur_sp_pred = []
-            cur_id = data['ids'][i]
-            for j in range(predict_support_np.shape[1]):
-                if j >= len(eval_file[cur_id]['sent2title_ids']): break
-                if predict_support_np[i, j] > sp_th:
-                    cur_sp_pred.append(eval_file[cur_id]['sent2title_ids'][j])
-            sp_dict.update({cur_id: cur_sp_pred})
-
-    prediction = {'answer': answer_dict, 'sp': sp_dict}
-    with open(prediction_file, 'w') as f:
-        json.dump(prediction, f)
-
-def test(config):
-    with open(config.word_emb_file, "r") as fh:
-        word_mat = np.array(json.load(fh), dtype=np.float32)
-    with open(config.char_emb_file, "r") as fh:
-        char_mat = np.array(json.load(fh), dtype=np.float32)
-    if config.data_split == 'dev':
-        with open(config.dev_eval_file, "r") as fh:
-            dev_eval_file = json.load(fh)
+        if config.mode == 'train':
+            m = nn.Softmax(dim=-1)
+            softmax_logit1 = m(logit1).data.cpu().numpy()
+            softmax_logit2 = m(logit2).data.cpu().numpy()
+            softmax_type = m(predict_type).data.cpu().numpy()
+            predictions['softmax_logit1'] = numpy.append( predictions['softmax_logit1'] , softmax_logit1)
+            predictions['softmax_logit2'] = numpy.append( predictions['softmax_logit2'] , softmax_logit2)
+            predictions['softmax_type'] = numpy.append( predictions['softmax_type'] , softmax_type)
+            predictions['predict_support_np'] = numpy.append( predictions['predict_support_np'] , predict_support_np)
+            predictions['qids'] = numpy.append( predictions['qids'] , data['ids'])
+        else
+            answer_dict_ = convert_tokens(eval_file, data['ids'], yp1.data.cpu().numpy().tolist(), yp2.data.cpu().numpy().tolist(), np.argmax(predict_type.data.cpu().numpy(), 1))
+            answer_dict.update(answer_dict_)
+    
+            # predict_support_np = torch.sigmoid(predict_support[:, :, 1]).data.cpu().numpy()
+            for i in range(predict_support_np.shape[0]):
+                cur_sp_pred = []
+                cur_id = data['ids'][i]
+                for j in range(predict_support_np.shape[1]):
+                    if j >= len(eval_file[cur_id]['sent2title_ids']): break
+                    if predict_support_np[i, j] > sp_th:
+                        cur_sp_pred.append(eval_file[cur_id]['sent2title_ids'][j])
+                sp_dict.update({cur_id: cur_sp_pred})
+    if config.mode == 'train':
+        return predictions
     else:
-        with open(config.test_eval_file, 'r') as fh:
-            dev_eval_file = json.load(fh)
-    with open(config.idx2word_file, 'r') as fh:
-        idx2word_dict = json.load(fh)
+        prediction = {'answer': answer_dict, 'sp': sp_dict}
+        with open(prediction_file, 'w') as f:
+            json.dump(prediction, f)
 
+def load_model_data(config, data_split):
     random.seed(config.seed)
     np.random.seed(config.seed)
     torch.manual_seed(config.seed)
     torch.cuda.manual_seed_all(config.seed)
+    
+    with open(config.word_emb_file, "r") as fh:
+        word_mat = np.array(json.load(fh), dtype=np.float32)
+    with open(config.char_emb_file, "r") as fh:
+        char_mat = np.array(json.load(fh), dtype=np.float32)
+    with open(config.idx2word_file, 'r') as fh:
+        idx2word_dict = json.load(fh)
 
-    def logging(s, print_=True, log_=True):
-        if print_:
-            print(s)
-        if log_:
-            with open(os.path.join(config.save, 'log.txt'), 'a+') as f_log:
-                f_log.write(s + '\n')
+    if data_split == 'train':
+        with open(config.train_eval_file, "r") as fh:
+            eval_file = json.load(fh)
+        
+    if data_split == 'dev':
+        with open(config.dev_eval_file, "r") as fh:
+            eval_file = json.load(fh)
+    else:
+        with open(config.test_eval_file, 'r') as fh:
+            eval_file = json.load(fh)
 
-    if config.data_split == 'dev':
-        dev_buckets = get_buckets(config.dev_record_file)
+    if data_split == 'dev':
+        buckets = get_buckets(config.dev_record_file)
         para_limit = config.para_limit
         ques_limit = config.ques_limit
-    elif config.data_split == 'test':
+    elif data_split == 'test':
         para_limit = None
         ques_limit = None
-        dev_buckets = get_buckets(config.test_record_file)
-
-    def build_dev_iterator():
-        return DataIterator(dev_buckets, config.batch_size, para_limit,
-            ques_limit, config.char_limit, False, config.sent_limit)
+        buckets = get_buckets(config.test_record_file)
 
     if config.sp_lambda > 0:
         model = SPModel(config, word_mat, char_mat)
@@ -304,6 +296,33 @@ def test(config):
     ori_model.load_state_dict(torch.load(os.path.join(config.save, 'model.pt')))
     model = nn.DataParallel(ori_model)
 
-    model.eval()
-    predict(build_dev_iterator(), model, dev_eval_file, config, config.prediction_file)
+    if data_split == 'train':
+        return model, eval_file, para_limit, ques_limit
+    elif data_split == 'test' || data_split == 'dev':      
+        return model, buckets, eval_file, para_limit, ques_limit
 
+def test(config, data_split, iteration_idx):
+    model, buckets, eval_file, para_limit, ques_limit = load_model_data(config, data_split)
+    model.eval()
+    def build_iterator():
+        return DataIterator(buckets, config.batch_size, para_limit, ques_limit, config.char_limit, False, config.sent_limit)
+    if config.mode == 'train':
+        prediction_file = config.save + '/pred/' + config.run_name + '_iter' + str(iteration_idx) + '.json'
+    else:
+        prediction_file = config.save + '/pred/' + config.run_name + '.json'
+    predict(build_iterator(), model, eval_file, config, prediction_file)
+
+    if config.mode == 'train':
+        return prediction_file
+
+def run_predict_unlabel(config, buckets):
+    model, eval_file, para_limit, ques_limit = load_model_data(config, config.data_split)
+    model.eval()
+    def build_iterator():
+        return DataIterator(buckets, config.batch_size, para_limit, ques_limit, config.char_limit, False, config.sent_limit)
+    predictions = predict(build_iterator(), model, eval_file, config, '')
+    return predictions
+    
+def run_evaluate_dev(config, iteration_idx):
+    prediction_file = test(config, 'dev', iteration_idx)
+    eval_all_metrics(prediction_file, config.dev_gold)
