@@ -104,14 +104,10 @@ def train(config, train_buckets, validation_buckets, iteration_idx):
 
             logit1, logit2, predict_type, predict_support = model(context_idxs, ques_idxs, context_char_idxs, ques_char_idxs, context_lens, start_mapping, end_mapping, all_mapping, return_yp=False)
             loss_1 = (nll_sum(predict_type, q_type) + nll_sum(logit1, y1) + nll_sum(logit2, y2)) / context_idxs.size(0)
-            
-            # config.sp_loss_portion defines how many batches ignore sp_loss in train
-            if random.random() < config.sp_loss_portion:  
-                loss_2 = nll_average(predict_support.view(-1, 2), is_support.view(-1))
-                loss = loss_1 + config.sp_lambda * loss_2
-                total_sp_loss += loss_2.data[0]
-            else:
-                loss = loss_1
+            loss_2 = nll_average(predict_support.view(-1, 2), is_support.view(-1))
+            loss = loss_1 + config.sp_lambda * loss_2
+            total_sp_loss += loss_2.data[0]
+
 
             optimizer.zero_grad()
             loss.backward()

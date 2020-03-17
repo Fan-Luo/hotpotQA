@@ -74,15 +74,14 @@ parser.add_argument('--method2', type=str,
                    default=None,
                    help="second sampling method ('Random','CoreSet','CoreSetMIP','Discriminative','DiscriminativeLearned','DiscriminativeAE','DiscriminativeStochastic','Uncertainty','Bayesian','UncertaintyEntropy','BayesianEntropy','EGL','Adversarial')")
 parser.add_argument('iterations', type=int, default=20)
-parser.add_argument('label_batch_size', type=int, default=100)
+parser.add_argument('label_batch_size', type=int, default=1000)
 parser.add_argument('--sp_lambda', type=float, default=0.0)
 parser.add_argument('--data_split', type=str, default='train')
 parser.add_argument('--fullwiki', action='store_true')
 # parser.add_argument('--prediction_file', type=str)
 parser.add_argument('--dev_gold', type=str, default='hotpot_dev_distractor_v1.json')
 parser.add_argument('--sp_threshold', type=float, default=0.3)
-parser.add_argument('--sp_loss_portion', type=float, default=1.0)
-parser.add_argument('--example_portion', type=float, default=1.0)
+# parser.add_argument('--sp_loss_portion', type=float, default=1.0)
 parser.add_argument('--run_name', type=str, default="run")
 
 config = parser.parse_args()
