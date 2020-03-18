@@ -21,6 +21,7 @@ def get_unlabeled_idx(X_train, labeled_idx):
 def create_exp_dir(path, scripts_to_save=None):
     if not os.path.exists(path):
         os.mkdir(path)
+        os.mkdir(path+'/pred')
 
     print('Experiment dir : {}'.format(path))
     if scripts_to_save is not None:
@@ -96,7 +97,7 @@ class UncertaintySampling():
         top2_sp_score = np.take_along_axis(predictions['predict_support_np'], np.argsort(predictions['predict_support_np'])[:,-2:], axis=-1)
         sp_score = np.average(top2_sp_score , axis =-1)
         
-        unlabeled_predictions =  logit1_score + logit2_score + type_score + top2_sp_score + sp_score
+        unlabeled_predictions =  logit1_score + logit2_score + type_score + sp_score
 
         selected_indices = np.argpartition(unlabeled_predictions, amount)[:amount]
         return np.hstack((labeled_idx, unlabeled_idx[selected_indices]))
@@ -219,8 +220,9 @@ def evaluate_sample(config, training_function, X_train, iteration_idx):
     # shuffle the training set:
     random.shuffle(X_train)
 
+    # train, (validation) dev
     # create the validation set:
-    X_validation = X_train[:int(0.2*len(X_train))]
+    X_validation = X_train[:int(0.2*len(X_train))]   #
     X_train = X_train[int(0.2*len(X_train)):]
 
     # train and evaluate the model:
@@ -241,6 +243,7 @@ def active_train(config):
     train_buckets = get_buckets(config.train_record_file)   # get_buckets returns [datapoints], and datapoints is a list, not numpy array
     random.shuffle(train_buckets)
 
+    # inital labeled size: 2.5% of training set
     # warm-sart
     labeled_idx = get_initial_idx(train_buckets[0], config.initial_idx_path, config.initial_size, config.seed)
     query_method = set_query_method(config.method, config.method2)

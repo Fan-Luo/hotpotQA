@@ -1,4 +1,4 @@
-from comet_ml import Experiment
+# from comet_ml import Experiment
 import ujson as json
 import numpy as np
 from tqdm import tqdm
@@ -18,15 +18,14 @@ from torch.autograd import Variable
 import sys
 from torch.nn import functional as F
 from hotpot_evaluate_v1 import eval as eval_all_metrics
-from hotpot_evaluate_v1 import update_answer, update_sp
 
 nll_sum = nn.CrossEntropyLoss(size_average=False, ignore_index=IGNORE_INDEX)
 nll_average = nn.CrossEntropyLoss(size_average=True, ignore_index=IGNORE_INDEX)
 nll_all = nn.CrossEntropyLoss(reduce=False, ignore_index=IGNORE_INDEX)
 
 def train(config, train_buckets, validation_buckets, iteration_idx):
-    experiment = Experiment(api_key="Q8LzfxMlAfA3ABWwq9fJDoR6r", project_name="hotpotqa-al", workspace="fan-luo")
-    experiment.set_name(config.run_name + "iteration"+ str(iteration_idx))
+    # experiment = Experiment(api_key="Q8LzfxMlAfA3ABWwq9fJDoR6r", project_name="hotpotqa-al", workspace="fan-luo")
+    # experiment.set_name(config.run_name + "iteration"+ str(iteration_idx))
 
     with open(config.word_emb_file, "r") as fh:
         word_mat = np.array(json.load(fh), dtype=np.float32)
@@ -124,7 +123,7 @@ def train(config, train_buckets, validation_buckets, iteration_idx):
                 cur_sp_loss = total_sp_loss / config.period
                 elapsed = time.time() - start_time
                 logging('| epoch {:3d} | step {:6d} | lr {:05.5f} | ms/batch {:5.2f} | train loss {:8.3f} | answer loss {:8.3f} | supporting facts loss {:8.3f} '.format(epoch, global_step, lr, elapsed*1000/config.period, cur_loss, cur_ans_loss, cur_sp_loss))
-                experiment.log_metrics({'train loss':cur_loss, 'train answer loss':cur_ans_loss ,'train supporting facts loss':cur_sp_loss }, step=global_step)
+                # experiment.log_metrics({'train loss':cur_loss, 'train answer loss':cur_ans_loss ,'train supporting facts loss':cur_sp_loss }, step=global_step)
                 total_loss = 0
                 total_ans_loss = 0
                 total_sp_loss = 0
@@ -139,7 +138,7 @@ def train(config, train_buckets, validation_buckets, iteration_idx):
                 logging('| eval {:6d} in epoch {:3d} | time: {:5.2f}s | validation loss {:8.3f} | answer loss {:8.3f} | supporting facts loss {:8.3f} | EM {:.4f} | F1 {:.4f}'.format(global_step//config.checkpoint,
                     epoch, time.time()-eval_start_time, metrics['loss'], metrics['ans_loss'], metrics['sp_loss'], metrics['exact_match'], metrics['f1']))
                 logging('-' * 89)
-                experiment.log_metrics({'validation loss':metrics['loss'], 'validation answer loss':metrics['ans_loss'] ,'validation supporting facts loss':metrics['sp_loss'], 'EM':metrics['exact_match'], 'F1': metrics['f1']}, step=global_step)
+                # experiment.log_metrics({'validation loss':metrics['loss'], 'validation answer loss':metrics['ans_loss'] ,'validation supporting facts loss':metrics['sp_loss'], 'EM':metrics['exact_match'], 'F1': metrics['f1']}, step=global_step)
 
                 eval_start_time = time.time()
 
@@ -205,7 +204,7 @@ def evaluate_batch(data_source, model, max_batches, eval_file, config):
     return metrics
 
 def predict(data_source, model, eval_file, config, prediction_file):
-    predictions = dict.fromkeys(['softmax_logit1', 'softmax_logit2', 'softmax_type', 'predict_support_np', 'qids'], numpy.array([]))
+    predictions = dict.fromkeys(['softmax_logit1', 'softmax_logit2', 'softmax_type', 'predict_support_np', 'qids'], np.array([]))
     answer_dict = {}
     sp_dict = {}
     sp_th = config.sp_threshold
@@ -226,11 +225,11 @@ def predict(data_source, model, eval_file, config, prediction_file):
             softmax_logit1 = m(logit1).data.cpu().numpy()
             softmax_logit2 = m(logit2).data.cpu().numpy()
             softmax_type = m(predict_type).data.cpu().numpy()
-            predictions['softmax_logit1'] = numpy.append( predictions['softmax_logit1'] , softmax_logit1)
-            predictions['softmax_logit2'] = numpy.append( predictions['softmax_logit2'] , softmax_logit2)
-            predictions['softmax_type'] = numpy.append( predictions['softmax_type'] , softmax_type)
-            predictions['predict_support_np'] = numpy.append( predictions['predict_support_np'] , predict_support_np)
-            predictions['qids'] = numpy.append( predictions['qids'] , data['ids'])
+            predictions['softmax_logit1'] = np.append( predictions['softmax_logit1'] , softmax_logit1)
+            predictions['softmax_logit2'] = np.append( predictions['softmax_logit2'] , softmax_logit2)
+            predictions['softmax_type'] = np.append( predictions['softmax_type'] , softmax_type)
+            predictions['predict_support_np'] = np.append( predictions['predict_support_np'] , predict_support_np)
+            predictions['qids'] = np.append( predictions['qids'] , data['ids'])
         else:
             answer_dict_ = convert_tokens(eval_file, data['ids'], yp1.data.cpu().numpy().tolist(), yp2.data.cpu().numpy().tolist(), np.argmax(predict_type.data.cpu().numpy(), 1))
             answer_dict.update(answer_dict_)
