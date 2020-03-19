@@ -55,8 +55,8 @@ def train(config, train_buckets, validation_buckets, iteration_idx):
     # dev_buckets = get_buckets(config.dev_record_file)
 
     def build_train_iterator():
-        print("para_size as parameter in build_train_iterator:" + str(config.para_limit))
-        print("ques_size as parameter in build_train_iterator:" + str(config.ques_limit))
+        # print("para_size as parameter in build_train_iterator:" + str(config.para_limit))
+        # print("ques_size as parameter in build_train_iterator:" + str(config.ques_limit))
         return DataIterator(train_buckets, config.batch_size, config.para_limit, config.ques_limit, config.char_limit, True, config.sent_limit)
 
     def build_validation_iterator():
@@ -204,7 +204,7 @@ def evaluate_batch(data_source, model, max_batches, eval_file, config):
     return metrics
 
 def predict(data_source, model, eval_file, config, prediction_file):
-    predictions = dict.fromkeys(['softmax_logit1', 'softmax_logit2', 'softmax_type', 'predict_support_np', 'qids'], np.array([]))
+    predictions = dict.fromkeys(['softmax_y1', 'softmax_y2', 'softmax_type', 'predict_support_np', 'qids'], np.array([])) #'softmax_logit1', 'softmax_logit2'
     answer_dict = {}
     sp_dict = {}
     sp_th = config.sp_threshold
@@ -247,13 +247,14 @@ def predict(data_source, model, eval_file, config, prediction_file):
                     if predict_support_np[i, j] > sp_th:
                         cur_sp_pred.append(eval_file[cur_id]['sent2title_ids'][j])
                 sp_dict.update({cur_id: cur_sp_pred})
+    print("prediction_file", prediction_file, "in predict() before save")
     if prediction_file == '':
         return predictions
     else:
         prediction = {'answer': answer_dict, 'sp': sp_dict}
         with open(prediction_file, 'w') as f:
             json.dump(prediction, f)
-
+        print("saved prediction in prediction_file", prediction_file, "in predict()")
 def load_model_data(config, data_split):
     random.seed(config.seed)
     np.random.seed(config.seed)
@@ -305,10 +306,12 @@ def test(config, data_split, iteration_idx):
     model.eval()
     def build_iterator():
         return DataIterator(buckets, config.batch_size, para_limit, ques_limit, config.char_limit, False, config.sent_limit)
+    print("config.save before prediction_file: ", config.save)
     if config.mode == 'train':
         prediction_file = config.save + '/pred/' + config.run_name + '_iter' + str(iteration_idx) + '.json'
     else:
         prediction_file = config.save + '/pred/' + config.run_name + '.json'
+    print("prediction_file", prediction_file, "in test() at iteration: ", iteration_idx)
     predict(build_iterator(), model, eval_file, config, prediction_file)
 
     if config.mode == 'train':
@@ -324,5 +327,6 @@ def run_predict_unlabel(config, buckets):
     
 def run_evaluate_dev(config, iteration_idx):
     prediction_file = test(config, 'dev', iteration_idx)
+    print("prediction_file", prediction_file, "in run_evaluate_dev() at iteration: ", iteration_idx)
     eval_all_metrics(prediction_file, config.dev_gold)
          

@@ -249,6 +249,11 @@ def active_train(config):
     # default inital labeled size: 2.5% of training set 89791 * 2.5 % = 2,245
     # warm-sart
     labeled_idx = get_initial_idx(train_buckets[0], config.initial_idx_path, config.initial_size, config.seed)
+    print("initial labeled_idx.shape", labeled_idx.shape)
+    if(np.unique(labeled_idx).shape != labeled_idx.shape):
+        print("!!! initial labeled_idx has duplicate elements")
+        exit()
+    
     query_method = set_query_method(config.method, config.method2)
     evaluate_sample(config, train, list(operator.itemgetter(*labeled_idx)(train_buckets[0])), -1) # will print evaluation result
     # query_method.update_model(model)
@@ -259,7 +264,10 @@ def active_train(config):
         # get the new indices from the algorithm
         # old_labeled = np.copy(labeled_idx)
         labeled_idx = query_method.query(config, train_buckets[0], labeled_idx, config.label_batch_size)
-
+        print("labeled_idx.shape", labeled_idx.shape)
+        if(np.unique(labeled_idx).shape != labeled_idx.shape):
+            print("!!!labeled_idx has duplicate elements in iteration", i)
+            exit()
         # # calculate and store the label entropy:
         # new_idx = labeled_idx[np.logical_not(np.isin(labeled_idx, old_labeled))]
         # new_labels = Y_train[new_idx]
