@@ -243,7 +243,7 @@ def predict(data_source, model, eval_file, config, prediction_file):
                     if predict_support_np[i, j] > sp_th:
                         cur_sp_pred.append(eval_file[cur_id]['sent2title_ids'][j])
                 sp_dict.update({cur_id: cur_sp_pred})
-    if config.mode == 'train':
+    if prediction_file == '':
         return predictions
     else:
         prediction = {'answer': answer_dict, 'sp': sp_dict}
