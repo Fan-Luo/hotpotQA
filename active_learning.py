@@ -91,13 +91,15 @@ class UncertaintySampling():
         print("len(unlabeled_train_datapoints)", len(unlabeled_train_datapoints))
         print("unlabeled_train_datapoints[:10]", unlabeled_train_datapoints[:10])
         
-        logit1_score = np.amax(predictions['softmax_logit1'], axis=-1)
-        logit2_score = np.amax(predictions['softmax_logit2'], axis=-1)
+        # logit1_score = np.amax(predictions['softmax_logit1'], axis=-1)
+        # logit2_score = np.amax(predictions['softmax_logit2'], axis=-1)
+        y1_score = np.amax(predictions['softmax_y1'], axis=-1)
+        y2_score = np.amax(predictions['softmax_y2'], axis=-1)
         type_score = np.amax(predictions['softmax_type'], axis=-1)
         top2_sp_score = np.take_along_axis(predictions['predict_support_np'], np.argsort(predictions['predict_support_np'])[:,-2:], axis=-1)
         sp_score = np.average(top2_sp_score , axis =-1)
         
-        unlabeled_predictions =  logit1_score + logit2_score + type_score + sp_score
+        unlabeled_predictions = y1_score + y2_score + type_score + sp_score # logit1_score + logit2_score
 
         selected_indices = np.argpartition(unlabeled_predictions, amount)[:amount]
         return np.hstack((labeled_idx, unlabeled_idx[selected_indices]))

@@ -182,7 +182,7 @@ def evaluate_batch(data_source, model, max_batches, eval_file, config):
         end_mapping = Variable(data['end_mapping'], volatile=True)
         all_mapping = Variable(data['all_mapping'], volatile=True)
 
-        logit1, logit2, predict_type, predict_support, yp1, yp2 = model(context_idxs, ques_idxs, context_char_idxs, ques_char_idxs, context_lens, start_mapping, end_mapping, all_mapping, return_yp=True)
+        logit1, logit2, predict_type, predict_support, yp1, yp2, _, _ = model(context_idxs, ques_idxs, context_char_idxs, ques_char_idxs, context_lens, start_mapping, end_mapping, all_mapping, return_yp=True)
         loss_1 = (nll_sum(predict_type, q_type) + nll_sum(logit1, y1) + nll_sum(logit2, y2)) / context_idxs.size(0) 
         loss_2 = nll_average(predict_support.view(-1, 2), is_support.view(-1))
         loss = loss_1 + config.sp_lambda * loss_2
@@ -218,15 +218,19 @@ def predict(data_source, model, eval_file, config, prediction_file):
         end_mapping = Variable(data['end_mapping'], volatile=True)
         all_mapping = Variable(data['all_mapping'], volatile=True)
 
-        logit1, logit2, predict_type, predict_support, yp1, yp2 = model(context_idxs, ques_idxs, context_char_idxs, ques_char_idxs, context_lens, start_mapping, end_mapping, all_mapping, return_yp=True)
+        logit1, logit2, predict_type, predict_support, yp1, yp2, y1, y2 = model(context_idxs, ques_idxs, context_char_idxs, ques_char_idxs, context_lens, start_mapping, end_mapping, all_mapping, return_yp=True)
         predict_support_np = torch.sigmoid(predict_support[:, :, 1]).data.cpu().numpy()
         if config.mode == 'train':
             m = nn.Softmax(dim=-1)
-            softmax_logit1 = m(logit1).data.cpu().numpy()
-            softmax_logit2 = m(logit2).data.cpu().numpy()
+            # softmax_logit1 = m(logit1).data.cpu().numpy()
+            # softmax_logit2 = m(logit2).data.cpu().numpy()
+            softmax_y1 = m(y1).data.cpu().numpy()
+            softmax_y2 = m(y2).data.cpu().numpy()
             softmax_type = m(predict_type).data.cpu().numpy()
-            predictions['softmax_logit1'] = np.append( predictions['softmax_logit1'] , softmax_logit1)
-            predictions['softmax_logit2'] = np.append( predictions['softmax_logit2'] , softmax_logit2)
+            # predictions['softmax_logit1'] = np.append( predictions['softmax_logit1'] , softmax_logit1)
+            # predictions['softmax_logit2'] = np.append( predictions['softmax_logit2'] , softmax_logit2)
+            predictions['softmax_y1'] = np.append( predictions['softmax_y1'] , softmax_y1)
+            predictions['softmax_y2'] = np.append( predictions['softmax_y2'] , softmax_y2)
             predictions['softmax_type'] = np.append( predictions['softmax_type'] , softmax_type)
             predictions['predict_support_np'] = np.append( predictions['predict_support_np'] , predict_support_np)
             predictions['qids'] = np.append( predictions['qids'] , data['ids'])
