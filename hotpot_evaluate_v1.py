@@ -83,7 +83,7 @@ def update_sp(metrics, prediction, gold):
 
 def eval(prediction_file, gold_file):
     run_name = prediction_file.split('/')[-1][:-5] #[:-5] removes '.json' at the end
-    iteration_idx = re.findall(r'(\w+?)(\d+)', run_name.split('_')[-1])[0][-1]  # split the iteration_idx from '_iter'
+    iteration_idx = ''.join(re.findall(r'(\w+?)(-?)(\d+)', run_name.split('_')[-1])[0][-2:])  # split the iteration_idx from '_iter'
     iteration_idx = int(iteration_idx)
     experiment = Experiment(api_key="Q8LzfxMlAfA3ABWwq9fJDoR6r", project_name="hotpotqa-al", workspace="fan-luo")
     experiment.set_name()   
