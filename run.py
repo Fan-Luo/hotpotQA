@@ -272,23 +272,21 @@ def load_model_data(config, data_split):
     if data_split == 'train':
         with open(config.train_eval_file, "r") as fh:
             eval_file = json.load(fh)
-        
-    if data_split == 'dev':
+        para_limit = config.para_limit
+        ques_limit = config.ques_limit
+    elif data_split == 'dev':
         with open(config.dev_eval_file, "r") as fh:
             eval_file = json.load(fh)
-    else:
-        with open(config.test_eval_file, 'r') as fh:
-            eval_file = json.load(fh)
-
-    if data_split == 'dev':
         buckets = get_buckets(config.dev_record_file)
         para_limit = config.para_limit
         ques_limit = config.ques_limit
-    elif data_split == 'test':
+    else: #test
+        with open(config.test_eval_file, 'r') as fh:
+            eval_file = json.load(fh)
+        buckets = get_buckets(config.test_record_file)
         para_limit = None
         ques_limit = None
-        buckets = get_buckets(config.test_record_file)
-
+        
     if config.sp_lambda > 0:
         model = SPModel(config, word_mat, char_mat)
     else:
