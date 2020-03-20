@@ -81,13 +81,11 @@ def update_sp(metrics, prediction, gold):
     metrics['sp_recall'] += recall
     return em, prec, recall
 
-def eval(prediction_file, gold_file):
+def eval(prediction_file, gold_file, experiment):
     run_name = prediction_file.split('/')[-1][:-5] #[:-5] removes '.json' at the end
     iteration_idx = ''.join(re.findall(r'(\w+?)(-?)(\d+)', run_name.split('_')[-1])[0][-2:])  # split the iteration_idx from '_iter'
     iteration_idx = int(iteration_idx)
-    experiment = Experiment(api_key="Q8LzfxMlAfA3ABWwq9fJDoR6r", project_name="hotpotqa-al", workspace="fan-luo")
-    experiment.set_name()   
-    
+
     with open(prediction_file) as f:
         prediction = json.load(f)
     with open(gold_file) as f:
@@ -129,7 +127,6 @@ def eval(prediction_file, gold_file):
     N = len(gold)
     for k in metrics.keys():
         metrics[k] /= N
-        experiment.log_metrics({'train loss':cur_loss, 'train answer loss':cur_ans_loss ,'train supporting facts loss':cur_sp_loss }, step=global_step)
         experiment.log_metric(k, metrics[k], step=iteration_idx)
     print(prediction_file)
     print(metrics)

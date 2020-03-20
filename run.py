@@ -1,4 +1,4 @@
-# from comet_ml import Experiment
+from comet_ml import Experiment
 import ujson as json
 import numpy as np
 from tqdm import tqdm
@@ -24,8 +24,8 @@ nll_average = nn.CrossEntropyLoss(size_average=True, ignore_index=IGNORE_INDEX)
 nll_all = nn.CrossEntropyLoss(reduce=False, ignore_index=IGNORE_INDEX)
 
 def train(config, train_buckets, validation_buckets, iteration_idx):
-    # experiment = Experiment(api_key="Q8LzfxMlAfA3ABWwq9fJDoR6r", project_name="hotpotqa-al", workspace="fan-luo")
-    # experiment.set_name(config.run_name + "iteration"+ str(iteration_idx))
+    experiment_iteration = Experiment(api_key="Q8LzfxMlAfA3ABWwq9fJDoR6r", project_name="hotpotqa-al", workspace="fan-luo")
+    experiment_iteration.set_name(config.run_name + "iteration"+ str(iteration_idx))
 
     with open(config.word_emb_file, "r") as fh:
         word_mat = np.array(json.load(fh), dtype=np.float32)
@@ -123,7 +123,7 @@ def train(config, train_buckets, validation_buckets, iteration_idx):
                 cur_sp_loss = total_sp_loss / config.period
                 elapsed = time.time() - start_time
                 logging('| epoch {:3d} | step {:6d} | lr {:05.5f} | ms/batch {:5.2f} | train loss {:8.3f} | answer loss {:8.3f} | supporting facts loss {:8.3f} '.format(epoch, global_step, lr, elapsed*1000/config.period, cur_loss, cur_ans_loss, cur_sp_loss))
-                # experiment.log_metrics({'train loss':cur_loss, 'train answer loss':cur_ans_loss ,'train supporting facts loss':cur_sp_loss }, step=global_step)
+                experiment_iteration.log_metrics({'train loss':cur_loss, 'train answer loss':cur_ans_loss ,'train supporting facts loss':cur_sp_loss }, step=global_step)
                 total_loss = 0
                 total_ans_loss = 0
                 total_sp_loss = 0
@@ -138,7 +138,7 @@ def train(config, train_buckets, validation_buckets, iteration_idx):
                 logging('| eval {:6d} in epoch {:3d} | time: {:5.2f}s | validation loss {:8.3f} | answer loss {:8.3f} | supporting facts loss {:8.3f} | EM {:.4f} | F1 {:.4f}'.format(global_step//config.checkpoint,
                     epoch, time.time()-eval_start_time, metrics['loss'], metrics['ans_loss'], metrics['sp_loss'], metrics['exact_match'], metrics['f1']))
                 logging('-' * 89)
-                # experiment.log_metrics({'validation loss':metrics['loss'], 'validation answer loss':metrics['ans_loss'] ,'validation supporting facts loss':metrics['sp_loss'], 'EM':metrics['exact_match'], 'F1': metrics['f1']}, step=global_step)
+                experiment_iteration.log_metrics({'validation loss':metrics['loss'], 'validation answer loss':metrics['ans_loss'] ,'validation supporting facts loss':metrics['sp_loss'], 'EM':metrics['exact_match'], 'F1': metrics['f1']}, step=global_step)
 
                 eval_start_time = time.time()
 
@@ -220,7 +220,7 @@ def predict(data_source, model, eval_file, config, prediction_file):
 
         logit1, logit2, predict_type, predict_support, yp1, yp2, y1, y2 = model(context_idxs, ques_idxs, context_char_idxs, ques_char_idxs, context_lens, start_mapping, end_mapping, all_mapping, return_yp=True)
         predict_support_np = torch.sigmoid(predict_support[:, :, 1]).data.cpu().numpy()
-        if config.mode == 'train':
+        if prediction_file == '':
             m = nn.Softmax(dim=-1)
             # softmax_logit1 = m(logit1).data.cpu().numpy()
             # softmax_logit2 = m(logit2).data.cpu().numpy()
@@ -255,6 +255,7 @@ def predict(data_source, model, eval_file, config, prediction_file):
         with open(prediction_file, 'w') as f:
             json.dump(prediction, f)
         print("saved prediction in prediction_file", prediction_file, "in predict()")
+        
 def load_model_data(config, data_split):
     random.seed(config.seed)
     np.random.seed(config.seed)
@@ -328,5 +329,5 @@ def run_predict_unlabel(config, buckets):
 def run_evaluate_dev(config, iteration_idx):
     prediction_file = test(config, 'dev', iteration_idx)
     print("prediction_file", prediction_file, "in run_evaluate_dev() at iteration: ", iteration_idx)
-    eval_all_metrics(prediction_file, config.dev_gold)
+    eval_all_metrics(prediction_file, config.dev_gold, config.experiment)
          

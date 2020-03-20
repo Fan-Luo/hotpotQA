@@ -11,6 +11,7 @@ from util import get_buckets
 import operator
 import time
 import shutil
+from comet_ml import Experiment
 
 def get_unlabeled_idx(X_train, labeled_idx):
     """
@@ -215,8 +216,8 @@ def set_query_method(method_name, method2_name=None):
 
 def evaluate_sample(config, training_function, X_train, iteration_idx):
     """
-    A function that accepts a labeled-unlabeled data split and trains the relevant model on the labeled data, returning
-    the model and it's accuracy on the test set.
+    A function that accepts a labeled-unlabeled data split and trains the relevant model on the labeled data, save
+    the model to file and e evaluate its perfromance on the test set (dev in this case).
     """
 
     # shuffle the training set:
@@ -241,6 +242,10 @@ def active_train(config):
     
     config.save = '{}-{}'.format(config.save, time.strftime("%Y%m%d-%H%M%S"))
     create_exp_dir(config.save, scripts_to_save=['run.py', 'model.py', 'util.py', 'sp_model.py'])
+    
+    experiment = Experiment(api_key="Q8LzfxMlAfA3ABWwq9fJDoR6r", project_name="hotpotqa-al", workspace="fan-luo")
+    experiment.set_name(config.run_name)   
+    config.experiment = experiment
     
     train_buckets = get_buckets(config.train_record_file)   # get_buckets returns [datapoints], and datapoints is a list, not numpy array
     #print("number of datapoints in train_buckets", len(train_buckets[0]))  #89791
@@ -281,6 +286,4 @@ def active_train(config):
         # evaluate the new sample:
         evaluate_sample(config, train, list(operator.itemgetter(*labeled_idx)(train_buckets[0])), i) 
         # query_method.update_model(model)
-        metrics.append(metric)
-    
     
