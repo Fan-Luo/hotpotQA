@@ -132,11 +132,11 @@ class SPModel(nn.Module):
         outer = logit1[:,:,None] + logit2[:,None]
         outer_mask = self.get_output_mask(outer)
         outer = outer - 1e30 * (1 - outer_mask[None].expand_as(outer))
-        y1 = outer.max(dim=2)[0]    # start token score for each word
-        y2 = outer.max(dim=1)[0]    # end token score for each word
+        ans_start = outer.max(dim=2)[0]    # start token score for each word
+        ans_end = outer.max(dim=1)[0]    # end token score for each word
         yp1 = outer.max(dim=2)[0].max(dim=1)[1]
         yp2 = outer.max(dim=1)[0].max(dim=1)[1]
-        return logit1, logit2, predict_type, predict_support, yp1, yp2, y1, y2
+        return logit1, logit2, predict_type, predict_support, yp1, yp2, ans_start, ans_end
 
 class LockedDropout(nn.Module):
     def __init__(self, dropout):

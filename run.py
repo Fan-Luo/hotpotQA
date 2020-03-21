@@ -204,10 +204,15 @@ def evaluate_batch(data_source, model, max_batches, eval_file, config):
     return metrics
 
 def predict(data_source, model, eval_file, config, prediction_file):
-    predictions = dict.fromkeys(['softmax_y1', 'softmax_y2', 'softmax_type', 'predict_support_np', 'qids'], np.array([])) #'softmax_logit1', 'softmax_logit2'
     answer_dict = {}
     sp_dict = {}
     sp_th = config.sp_threshold
+    m = nn.Softmax(dim=-1)
+    softmax_ans_start = []
+    softmax_ans_end = []
+    softmax_type = []
+    predict_support_li = []
+    qids = []
     for step, data in enumerate(tqdm(data_source)):
         context_idxs = Variable(data['context_idxs'], volatile=True)
         ques_idxs = Variable(data['ques_idxs'], volatile=True)
@@ -218,22 +223,22 @@ def predict(data_source, model, eval_file, config, prediction_file):
         end_mapping = Variable(data['end_mapping'], volatile=True)
         all_mapping = Variable(data['all_mapping'], volatile=True)
 
-        logit1, logit2, predict_type, predict_support, yp1, yp2, y1, y2 = model(context_idxs, ques_idxs, context_char_idxs, ques_char_idxs, context_lens, start_mapping, end_mapping, all_mapping, return_yp=True)
+        logit1, logit2, predict_type, predict_support, yp1, yp2, ans_start, ans_end = model(context_idxs, ques_idxs, context_char_idxs, ques_char_idxs, context_lens, start_mapping, end_mapping, all_mapping, return_yp=True)
+        
         predict_support_np = torch.sigmoid(predict_support[:, :, 1]).data.cpu().numpy()
         if prediction_file == '':
-            m = nn.Softmax(dim=-1)
             # softmax_logit1 = m(logit1).data.cpu().numpy()
             # softmax_logit2 = m(logit2).data.cpu().numpy()
-            softmax_y1 = m(y1).data.cpu().numpy()
-            softmax_y2 = m(y2).data.cpu().numpy()
-            softmax_type = m(predict_type).data.cpu().numpy()
-            # predictions['softmax_logit1'] = np.append( predictions['softmax_logit1'] , softmax_logit1)
-            # predictions['softmax_logit2'] = np.append( predictions['softmax_logit2'] , softmax_logit2)
-            predictions['softmax_y1'] = np.append( predictions['softmax_y1'] , softmax_y1)
-            predictions['softmax_y2'] = np.append( predictions['softmax_y2'] , softmax_y2)
-            predictions['softmax_type'] = np.append( predictions['softmax_type'] , softmax_type)
-            predictions['predict_support_np'] = np.append( predictions['predict_support_np'] , predict_support_np)
-            predictions['qids'] = np.append( predictions['qids'] , data['ids'])
+            softmax_ans_start.extend(list(m(ans_start).data.cpu().numpy())) # list of numpy array
+            softmax_ans_end.extend(list(m(ans_end).data.cpu().numpy()))
+            softmax_type.extend(list(m(predict_type).data.cpu().numpy()))
+            predict_support_li.extend(list(predict_support_np))
+            qids.extend(data['ids'])
+            # print("len(softmax_ans_start) in predict() ", len(softmax_ans_start))  # 不同batch中的softmax_ans_start的长度不一样,因为para_limit不一样
+            # print("len(softmax_ans_start) in predict() ", len(softmax_ans_start))
+            # print("len(softmax_type) in predict() ", len(softmax_type))
+            # print("len(predict_support_li) in predict() ", len(predict_support_li))
+            # print("len(qids) in predict() ", len(qids))
         else:
             answer_dict_ = convert_tokens(eval_file, data['ids'], yp1.data.cpu().numpy().tolist(), yp2.data.cpu().numpy().tolist(), np.argmax(predict_type.data.cpu().numpy(), 1))
             answer_dict.update(answer_dict_)
@@ -247,11 +252,26 @@ def predict(data_source, model, eval_file, config, prediction_file):
                     if predict_support_np[i, j] > sp_th:
                         cur_sp_pred.append(eval_file[cur_id]['sent2title_ids'][j])
                 sp_dict.update({cur_id: cur_sp_pred})
-    print("prediction_file", prediction_file, "in predict() before save")
+    
     if prediction_file == '':
+        predictions = dict.fromkeys(['softmax_ans_start', 'softmax_ans_end', 'softmax_type', 'predict_support_li', 'qids'],[]) #'softmax_logit1', 'softmax_logit2'
+        predictions['softmax_ans_start'] = softmax_ans_start   
+        predictions['softmax_ans_end'] = softmax_ans_end
+        predictions['softmax_type'] = softmax_type
+        predictions['predict_support_li'] = predict_support_li
+        predictions['qids'] = qids
+        print("len(predictions['softmax_ans_start']) in predict() ", len(predictions['softmax_ans_start']))
+        print("len(predictions['softmax_ans_end']) in predict() ", len(predictions['softmax_ans_end']))
+        print("len(predictions['softmax_type']) in predict() ", len(predictions['softmax_type']))
+        print("len(predictions['predict_support_li']) in predict() ", len(predictions['predict_support_li']))
+        print("len(predictions['qids']) in predict() ", len(predictions['qids']))
+        print("predictions['predict_support_li'][0].shape in predict() ", predictions['predict_support_li'][0].shape)
+        print("predictions['softmax_ans_start'][0].shape in predict() ", predictions['softmax_ans_start'][0].shape)
+        print("predictions['softmax_type'][0].shape in predict() ", predictions['softmax_type'][0].shape)
         return predictions
     else:
         prediction = {'answer': answer_dict, 'sp': sp_dict}
+        # print("prediction_file", prediction_file, "in predict() before save")
         with open(prediction_file, 'w') as f:
             json.dump(prediction, f)
         print("saved prediction in prediction_file", prediction_file, "in predict()")
@@ -292,9 +312,11 @@ def load_model_data(config, data_split):
     else:
         model = Model(config, word_mat, char_mat)
     ori_model = model.cuda()
+    # print("ori_model.linear_type.weight before load_state_dict", ori_model.linear_type.weight)
     ori_model.load_state_dict(torch.load(os.path.join(config.save, 'model.pt')))
+    # print("ori_model.linear_type.weight after load_state_dict", ori_model.linear_type.weight)
     model = nn.DataParallel(ori_model)
-
+    # print("model.module.linear_type.weight after load_state_dict", model.module.linear_type.weight)
     if data_split == 'train':
         return model, eval_file, para_limit, ques_limit
     else:      
@@ -302,6 +324,7 @@ def load_model_data(config, data_split):
 
 def test(config, data_split, iteration_idx):
     model, buckets, eval_file, para_limit, ques_limit = load_model_data(config, data_split)
+    # print("model.module.linear_type.weight in test() after load_model_data()", model.module.linear_type.weight)
     model.eval()
     def build_iterator():
         return DataIterator(buckets, config.batch_size, para_limit, ques_limit, config.char_limit, False, config.sent_limit)
@@ -318,7 +341,9 @@ def test(config, data_split, iteration_idx):
 
 def run_predict_unlabel(config, buckets):
     model, eval_file, para_limit, ques_limit = load_model_data(config, config.data_split)
+    # print("model.module.linear_type.weight in run_predict_unlabel() after load_model_data()", model.module.linear_type.weight)
     model.eval()
+    print("unlabeled datapoints in buckets in run_predict_unlabel()",len(buckets[0]))
     def build_iterator():
         return DataIterator(buckets, config.batch_size, para_limit, ques_limit, config.char_limit, False, config.sent_limit)
     predictions = predict(build_iterator(), model, eval_file, config, '')

@@ -85,23 +85,49 @@ class UncertaintySampling():
         unlabeled_idx = get_unlabeled_idx(X_train, labeled_idx)
         unlabeled_train_datapoints = list(operator.itemgetter(*unlabeled_idx)(X_train))    
         predictions = run_predict_unlabel(config, [unlabeled_train_datapoints] )
+        print("predictions in query:")
+        print("len(predictions['softmax_ans_start']) in predict() ", len(predictions['softmax_ans_start']))
+        print("len(predictions['softmax_ans_end']) in predict() ", len(predictions['softmax_ans_end']))
+        print("len(predictions['softmax_type']) in predict() ", len(predictions['softmax_type']))
+        print("len(predictions['predict_support_li']) in predict() ", len(predictions['predict_support_li']))
+        print("len(predictions['qids']) in predict() ", len(predictions['qids']))
         
-        # compare predictions[qids] with unlabeled_train_datapoints['id'] to ensure the ordered is same 
-        print("predictions[qids][:10]", predictions[qids][:10])
-        print("predictions[qids].shape", predictions[qids].shape)
         print("len(unlabeled_train_datapoints)", len(unlabeled_train_datapoints))
-        print("unlabeled_train_datapoints[:10]", unlabeled_train_datapoints[:10])
+       
+        # compare predictions[qids] with unlabeled_train_datapoints['id'] to check if the ordered is same 
+        # it turns out the order is different, so the predictions has to be remapped back as the order of unlabeled_idx has 
+        print("predictions['qids'][:10]", predictions['qids'][:10])
+        for i in range(10):
+            print("unlabeled_train_datapoints[i]['id']", unlabeled_train_datapoints[i]['id'])
         
-        # logit1_score = np.amax(predictions['softmax_logit1'], axis=-1)
-        # logit2_score = np.amax(predictions['softmax_logit2'], axis=-1)
-        y1_score = np.amax(predictions['softmax_y1'], axis=-1)
-        y2_score = np.amax(predictions['softmax_y2'], axis=-1)
-        type_score = np.amax(predictions['softmax_type'], axis=-1)
-        top2_sp_score = np.take_along_axis(predictions['predict_support_np'], np.argsort(predictions['predict_support_np'])[:,-2:], axis=-1)
-        sp_score = np.average(top2_sp_score , axis =-1)
+        ans_start_score = np.array([])
+        ans_end_score = np.array([])
+        type_score = np.array([])
+        sp_score = np.array([])
+        qids = np.array([])
+        for i in range(len(unlabeled_train_datapoints)):
+            #map back to the same order as unlabeled_train_datapoints according to qid
+            prediction_idx = predictions['qids'].index(unlabeled_train_datapoints[i]['id'])
+            
+            ans_start_score.append(np.max(predictions['softmax_ans_start'][prediction_idx]))
+            ans_end_score.append(np.max(predictions['softmax_ans_end'][prediction_idx]))
+            type_score.append(np.max(predictions['softmax_type'][prediction_idx]))
+            
+            predict_support = predictions['predict_support_li'][prediction_idx]
+            top2_sp_score = predict_support.take(np.argsort(predict_support)[-2:])
+            sp_score.append(np.average(top2_sp_score))
+            
+            qids.append(predictions['qids'][prediction_idx])
         
-        unlabeled_predictions = y1_score + y2_score + type_score + sp_score # logit1_score + logit2_score
-
+        print("ans_start_score.shape ", ans_start_score.shape)
+        print("ans_end_score.shape ", ans_end_score.shape)
+        print("type_score.shape ", type_score.shape)
+        print("sp_score.shape ", sp_score.shape)
+        print("qids.shape ", qids.shape)
+        print("qids[:10]", qids[:10])
+        
+        unlabeled_predictions = ans_start_score + ans_end_score + type_score + sp_score # logit1_score + logit2_score
+        print("unlabeled_predictions.shape ", unlabeled_predictions.shape)
         selected_indices = np.argpartition(unlabeled_predictions, amount)[:amount]
         return np.hstack((labeled_idx, unlabeled_idx[selected_indices]))
 
@@ -228,10 +254,18 @@ def evaluate_sample(config, training_function, X_train, iteration_idx):
     X_validation = X_train[:int(0.2*len(X_train))]   #
     X_train = X_train[int(0.2*len(X_train)):]
 
+    T_before_train = time.time() # before train
     # train and evaluate the model:
     training_function(config, [X_train], [X_validation], iteration_idx) # the best model in this iteration is saved in the model.pt file
+    T_after_train = time.time() # after train
+    T = T_after_train - T_before_train
+    print("train in iteration ", iteration_idx, " takes time: ", time.strftime("%Hh %Mm %Ss", time.gmtime(T)))
+    
+    T_before_evaluate_dev = time.time() # before evaluate_dev
     run_evaluate_dev(config, iteration_idx)
-
+    T_after_evaluate_dev = time.time() # before evaluate_dev
+    T = T_after_evaluate_dev - T_before_evaluate_dev
+    print("evaluate on dev in iteration ", iteration_idx, " takes time: ", time.strftime("%Hh %Mm %Ss", time.gmtime(T)))
     
 def active_train(config):
 
@@ -251,6 +285,7 @@ def active_train(config):
     #print("number of datapoints in train_buckets", len(train_buckets[0]))  #89791
     random.shuffle(train_buckets)
 
+    T_before_warm_sart = time.time() # before warm-sart
     # default inital labeled size: 2.5% of training set 89791 * 2.5 % = 2,245
     # warm-sart
     labeled_idx = get_initial_idx(train_buckets[0], config.initial_idx_path, config.initial_size, config.seed)
@@ -261,15 +296,20 @@ def active_train(config):
     
     query_method = set_query_method(config.method, config.method2)
     evaluate_sample(config, train, list(operator.itemgetter(*labeled_idx)(train_buckets[0])), -1) # will print evaluation result
-    # query_method.update_model(model)
+    T_after_warm_sart = time.time() # after warm-sart
+    T_warm_sart = T_after_warm_sart - T_before_warm_sart
+    print("warm sart time: ", time.strftime("%Hh %Mm %Ss", time.gmtime(T_warm_sart)))
     
     # iteratively query
     for i in range(config.iterations):
-
+        T_before_iteration = time.time() # before current iteration
         # get the new indices from the algorithm
         # old_labeled = np.copy(labeled_idx)
         labeled_idx = query_method.query(config, train_buckets[0], labeled_idx, config.label_batch_size)
         print("labeled_idx.shape", labeled_idx.shape)
+        T_after_query = time.time()
+        T_query = T_after_query - T_before_iteration
+        print("query in iteration ", i, " takes time: ", time.strftime("%Hh %Mm %Ss", time.gmtime(T_query)))
         if(np.unique(labeled_idx).shape != labeled_idx.shape):
             print("!!!labeled_idx has duplicate elements in iteration", i)
             exit()
@@ -285,5 +325,7 @@ def active_train(config):
 
         # evaluate the new sample:
         evaluate_sample(config, train, list(operator.itemgetter(*labeled_idx)(train_buckets[0])), i) 
-        # query_method.update_model(model)
+        T_after_iteration = time.time() # before current iteration
+        T_iteration = T_after_iteration - T_before_iteration
+        print("iteration ", i, " takes time: ", time.strftime("%Hh %Mm %Ss", time.gmtime(T_iteration)))
     
