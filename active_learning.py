@@ -100,11 +100,11 @@ class UncertaintySampling():
         for i in range(10):
             print("unlabeled_train_datapoints[i]['id']", unlabeled_train_datapoints[i]['id'])
         
-        ans_start_score = np.array([])
-        ans_end_score = np.array([])
-        type_score = np.array([])
-        sp_score = np.array([])
-        qids = np.array([])
+        ans_start_score = []
+        ans_end_score = []
+        type_score = []
+        sp_score = []
+        qids = []
         for i in range(len(unlabeled_train_datapoints)):
             #map back to the same order as unlabeled_train_datapoints according to qid
             prediction_idx = predictions['qids'].index(unlabeled_train_datapoints[i]['id'])
@@ -119,14 +119,14 @@ class UncertaintySampling():
             
             qids.append(predictions['qids'][prediction_idx])
         
-        print("ans_start_score.shape ", ans_start_score.shape)
-        print("ans_end_score.shape ", ans_end_score.shape)
-        print("type_score.shape ", type_score.shape)
-        print("sp_score.shape ", sp_score.shape)
-        print("qids.shape ", qids.shape)
+        print("len(ans_start_score) ", len(ans_start_score))
+        print("len(ans_end_score) ", len(ans_end_score))
+        print("len(type_score) ", len(type_score))
+        print("len(sp_score) ", len(sp_score))
+        print("len(qids) ", len(qids))
         print("qids[:10]", qids[:10])
         
-        unlabeled_predictions = ans_start_score + ans_end_score + type_score + sp_score # logit1_score + logit2_score
+        unlabeled_predictions = np.array(ans_start_score) + np.array(ans_end_score) + np.array(type_score) + np.array(sp_score) # logit1_score + logit2_score
         print("unlabeled_predictions.shape ", unlabeled_predictions.shape)
         selected_indices = np.argpartition(unlabeled_predictions, amount)[:amount]
         return np.hstack((labeled_idx, unlabeled_idx[selected_indices]))
