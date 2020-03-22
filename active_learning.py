@@ -240,7 +240,7 @@ def set_query_method(method_name, method2_name=None):
     return query_method
     
 
-def evaluate_sample(config, training_function, X_train, iteration_idx):
+def evaluate_sample(config, training_function, X_train, experiment, iteration_idx):
     """
     A function that accepts a labeled-unlabeled data split and trains the relevant model on the labeled data, save
     the model to file and e evaluate its perfromance on the test set (dev in this case).
@@ -262,10 +262,14 @@ def evaluate_sample(config, training_function, X_train, iteration_idx):
     print("train in iteration ", iteration_idx, " takes time: ", time.strftime("%Hh %Mm %Ss", time.gmtime(T)))
     
     T_before_evaluate_dev = time.time() # before evaluate_dev
-    run_evaluate_dev(config, iteration_idx)
+    metrics = run_evaluate_dev(config, iteration_idx)
+    
     T_after_evaluate_dev = time.time() # before evaluate_dev
     T = T_after_evaluate_dev - T_before_evaluate_dev
     print("evaluate on dev in iteration ", iteration_idx, " takes time: ", time.strftime("%Hh %Mm %Ss", time.gmtime(T)))
+    
+    for k in metrics.keys():
+        experiment.log_metric(k, metrics[k], step=iteration_idx)
     
 def active_train(config):
 
@@ -279,7 +283,6 @@ def active_train(config):
     
     experiment = Experiment(api_key="Q8LzfxMlAfA3ABWwq9fJDoR6r", project_name="hotpotqa-al", workspace="fan-luo")
     experiment.set_name(config.run_name)   
-    config.experiment = experiment
     
     train_buckets = get_buckets(config.train_record_file)   # get_buckets returns [datapoints], and datapoints is a list, not numpy array
     #print("number of datapoints in train_buckets", len(train_buckets[0]))  #89791
@@ -295,7 +298,7 @@ def active_train(config):
         exit()
     
     query_method = set_query_method(config.method, config.method2)
-    evaluate_sample(config, train, list(operator.itemgetter(*labeled_idx)(train_buckets[0])), -1) # will print evaluation result
+    evaluate_sample(config, train, list(operator.itemgetter(*labeled_idx)(train_buckets[0])), experiment, -1) # will print evaluation result
     T_after_warm_sart = time.time() # after warm-sart
     T_warm_sart = T_after_warm_sart - T_before_warm_sart
     print("warm sart time: ", time.strftime("%Hh %Mm %Ss", time.gmtime(T_warm_sart)))
@@ -324,7 +327,7 @@ def active_train(config):
         # queries.append(new_idx)
 
         # evaluate the new sample:
-        evaluate_sample(config, train, list(operator.itemgetter(*labeled_idx)(train_buckets[0])), i) 
+        evaluate_sample(config, train, list(operator.itemgetter(*labeled_idx)(train_buckets[0])), experiment, i) 
         T_after_iteration = time.time() # before current iteration
         T_iteration = T_after_iteration - T_before_iteration
         print("iteration ", i, " takes time: ", time.strftime("%Hh %Mm %Ss", time.gmtime(T_iteration)))

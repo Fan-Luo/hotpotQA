@@ -352,5 +352,6 @@ def run_predict_unlabel(config, buckets):
 def run_evaluate_dev(config, iteration_idx):
     prediction_file = test(config, 'dev', iteration_idx)
     print("prediction_file", prediction_file, "in run_evaluate_dev() at iteration: ", iteration_idx)
-    eval_all_metrics(prediction_file, config.dev_gold, config.experiment)
+    metrics = eval_all_metrics(prediction_file, config.dev_gold)
+    return metrics
          

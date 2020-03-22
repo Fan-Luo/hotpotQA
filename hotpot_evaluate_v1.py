@@ -4,7 +4,6 @@ import re
 import string
 from collections import Counter
 import pickle
-from comet_ml import Experiment
 
 def normalize_answer(s):
 
@@ -81,7 +80,7 @@ def update_sp(metrics, prediction, gold):
     metrics['sp_recall'] += recall
     return em, prec, recall
 
-def eval(prediction_file, gold_file, experiment):
+def eval(prediction_file, gold_file):
     run_name = prediction_file.split('/')[-1][:-5] #[:-5] removes '.json' at the end
     iteration_idx = ''.join(re.findall(r'(\w+?)(-?)(\d+)', run_name.split('_')[-1])[0][-2:])  # split the iteration_idx from '_iter'
     iteration_idx = int(iteration_idx)
@@ -127,9 +126,9 @@ def eval(prediction_file, gold_file, experiment):
     N = len(gold)
     for k in metrics.keys():
         metrics[k] /= N
-        experiment.log_metric(k, metrics[k], step=iteration_idx)
     print(prediction_file)
     print(metrics)
+    return metrics
 
 if __name__ == '__main__':
     eval(sys.argv[1], sys.argv[2])
