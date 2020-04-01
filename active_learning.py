@@ -85,14 +85,14 @@ class UncertaintySampling():
         unlabeled_idx = get_unlabeled_idx(X_train, labeled_idx)
         unlabeled_train_datapoints = list(operator.itemgetter(*unlabeled_idx)(X_train))    
         predictions = run_predict_unlabel(config, [unlabeled_train_datapoints] )
-        print("predictions in query:")
-        print("len(predictions['softmax_ans_start']) in predict() ", len(predictions['softmax_ans_start']))
-        print("len(predictions['softmax_ans_end']) in predict() ", len(predictions['softmax_ans_end']))
-        print("len(predictions['softmax_type']) in predict() ", len(predictions['softmax_type']))
-        print("len(predictions['predict_support_li']) in predict() ", len(predictions['predict_support_li']))
-        print("len(predictions['qids']) in predict() ", len(predictions['qids']))
+        # print("predictions in query:")
+        # print("len(predictions['softmax_ans_start']) in predict() ", len(predictions['softmax_ans_start']))
+        # print("len(predictions['softmax_ans_end']) in predict() ", len(predictions['softmax_ans_end']))
+        # print("len(predictions['softmax_type']) in predict() ", len(predictions['softmax_type']))
+        # print("len(predictions['predict_support_li']) in predict() ", len(predictions['predict_support_li']))
+        # print("len(predictions['qids']) in predict() ", len(predictions['qids']))
         
-        print("len(unlabeled_train_datapoints)", len(unlabeled_train_datapoints))
+        # print("len(unlabeled_train_datapoints)", len(unlabeled_train_datapoints))
        
         # compare predictions[qids] with unlabeled_train_datapoints['id'] to check if the ordered is same 
         # it turns out the order is different, so the predictions has to be remapped back as the order of unlabeled_idx has 
@@ -119,15 +119,15 @@ class UncertaintySampling():
             
             qids.append(predictions['qids'][prediction_idx])
         
-        print("len(ans_start_score) ", len(ans_start_score))
-        print("len(ans_end_score) ", len(ans_end_score))
-        print("len(type_score) ", len(type_score))
-        print("len(sp_score) ", len(sp_score))
-        print("len(qids) ", len(qids))
-        print("qids[:10]", qids[:10])
+        print("ans_start_score ", ans_start_score)
+        print("ans_end_score ", ans_end_score)
+        print("type_score ", type_score)
+        print("sp_score ", sp_score)
+        # print("len(qids) ", len(qids))
+        # print("qids[:10]", qids[:10])
         
-        unlabeled_predictions = np.array(ans_start_score) + np.array(ans_end_score) + np.array(type_score) + np.array(sp_score) # logit1_score + logit2_score
-        print("unlabeled_predictions.shape ", unlabeled_predictions.shape)
+        unlabeled_predictions = (1.0 - sp_uncertainty_lambda) * (np.array(ans_start_score) + np.array(ans_end_score) + np.array(type_score)) + sp_uncertainty_lambda * np.array(sp_score) # logit1_score + logit2_score
+        # print("unlabeled_predictions.shape ", unlabeled_predictions.shape)
         selected_indices = np.argpartition(unlabeled_predictions, amount)[:amount]
         return np.hstack((labeled_idx, unlabeled_idx[selected_indices]))
 
@@ -240,7 +240,7 @@ def set_query_method(method_name, method2_name=None):
     return query_method
     
 
-def evaluate_sample(config, training_function, X_train, experiment, iteration_idx):
+def evaluate_sample(config, training_function, X_validation, X_train, experiment, iteration_idx):
     """
     A function that accepts a labeled-unlabeled data split and trains the relevant model on the labeled data, save
     the model to file and e evaluate its perfromance on the test set (dev in this case).
@@ -251,8 +251,8 @@ def evaluate_sample(config, training_function, X_train, experiment, iteration_id
 
     # train, (validation) dev
     # create the validation set:
-    X_validation = X_train[:int(0.2*len(X_train))]   #
-    X_train = X_train[int(0.2*len(X_train)):]
+    # X_validation = X_train[:int(0.2*len(X_train))]   #
+    # X_train = X_train[int(0.2*len(X_train)):]
 
     T_before_train = time.time() # before train
     # train and evaluate the model:
@@ -297,8 +297,14 @@ def active_train(config):
         print("!!! initial labeled_idx has duplicate elements")
         exit()
     
+    X_train =  list(operator.itemgetter(*labeled_idx)(train_buckets[0]))
+    random.shuffle(X_train)
+    X_validation = X_train[:int(0.5*len(X_train))] 
+    print('X_validation[:10] in warm-sart: ', X_validation[:10])
+    X_train = X_train[int(0.5*len(X_train)):]
+    
     query_method = set_query_method(config.method, config.method2)
-    evaluate_sample(config, train, list(operator.itemgetter(*labeled_idx)(train_buckets[0])), experiment, -1) # will print evaluation result
+    evaluate_sample(config, train, X_validation, X_train, experiment, -1) # will print evaluation result
     T_after_warm_sart = time.time() # after warm-sart
     T_warm_sart = T_after_warm_sart - T_before_warm_sart
     print("warm sart time: ", time.strftime("%Hh %Mm %Ss", time.gmtime(T_warm_sart)))
@@ -327,7 +333,8 @@ def active_train(config):
         # queries.append(new_idx)
 
         # evaluate the new sample:
-        evaluate_sample(config, train, list(operator.itemgetter(*labeled_idx)(train_buckets[0])), experiment, i) 
+        print("X_validation[:10] in iteration ", i, " : ", X_validation[:10])
+        evaluate_sample(config, train, X_validation, list(operator.itemgetter(*labeled_idx)(train_buckets[0])), experiment, i) #X_validation is constant, always be the of half of the initial
         T_after_iteration = time.time() # before current iteration
         T_iteration = T_after_iteration - T_before_iteration
         print("iteration ", i, " takes time: ", time.strftime("%Hh %Mm %Ss", time.gmtime(T_iteration)))
