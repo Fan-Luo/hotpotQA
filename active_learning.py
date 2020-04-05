@@ -306,13 +306,13 @@ def active_train(config):
         print("!!! initial labeled_idx has duplicate elements")
         exit()
     
-    X_train =  list(operator.itemgetter(*labeled_idx)(train_buckets[0]))
-    random.shuffle(X_train)
-    X_validation = X_train[:int(0.5*len(X_train))] 
+    validation_idx = random.sample(labeled_idx, int(0.5*len(labeled_idx))) 
+    X_validation = list(operator.itemgetter(*validation_idx)(train_buckets[0]))
     print("X_validation[:10]['id'] in warm-sart: ")
     for j in range(10):
         print(X_validation[j]['id'])
-    X_train = X_train[int(0.5*len(X_train)):]
+    train_idx = labeled_idx[np.logical_not(np.isin(labeled_idx, validation_idx))]
+    X_train =  list(operator.itemgetter(*train_idx)(train_buckets[0]))
     
     experiment_iteration = []
     experiment_iteration.append(Experiment(api_key="Q8LzfxMlAfA3ABWwq9fJDoR6r", project_name="hotpotqa-al", workspace="fan-luo"))
@@ -347,8 +347,8 @@ def active_train(config):
         # entropies.append(entropy)
         # label_distributions.append(new_labels)
         # queries.append(new_idx)
-
-        X_train = list(operator.itemgetter(*labeled_idx)(train_buckets[0]))
+        train_idx = labeled_idx[np.logical_not(np.isin(labeled_idx, validation_idx))]
+        X_train = list(operator.itemgetter(*train_idx)(train_buckets[0]))
         print("X_validation[:10]['id'] in iteration ", iter_id, " : ")
         for j in range(10):
             print(X_validation[j]['id'])
