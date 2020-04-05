@@ -23,9 +23,7 @@ nll_sum = nn.CrossEntropyLoss(size_average=False, ignore_index=IGNORE_INDEX)
 nll_average = nn.CrossEntropyLoss(size_average=True, ignore_index=IGNORE_INDEX)
 nll_all = nn.CrossEntropyLoss(reduce=False, ignore_index=IGNORE_INDEX)
 
-def train(config, train_buckets, validation_buckets, iteration_idx):
-    experiment_iteration = Experiment(api_key="Q8LzfxMlAfA3ABWwq9fJDoR6r", project_name="hotpotqa-al", workspace="fan-luo")
-    experiment_iteration.set_name(config.run_name + "iteration"+ str(iteration_idx))
+def train(config, train_buckets, validation_buckets, iteration_idx, experiment_iteration):
 
     with open(config.word_emb_file, "r") as fh:
         word_mat = np.array(json.load(fh), dtype=np.float32)
@@ -105,15 +103,14 @@ def train(config, train_buckets, validation_buckets, iteration_idx):
             loss_1 = (nll_sum(predict_type, q_type) + nll_sum(logit1, y1) + nll_sum(logit2, y2)) / context_idxs.size(0)
             loss_2 = nll_average(predict_support.view(-1, 2), is_support.view(-1))
             loss = loss_1 + config.sp_lambda * loss_2
+
+            total_ans_loss += loss_1.data[0]
             total_sp_loss += loss_2.data[0]
-
-
+            total_loss += loss.data[0]
+            
             optimizer.zero_grad()
             loss.backward()
             optimizer.step()
-
-            total_loss += loss.data[0]
-            total_ans_loss += loss_1.data[0]
             
             global_step += 1
 
