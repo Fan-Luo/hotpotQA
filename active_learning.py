@@ -306,7 +306,7 @@ def active_train(config):
         print("!!! initial labeled_idx has duplicate elements")
         exit()
     
-    validation_idx = random.sample(labeled_idx, int(0.5*len(labeled_idx))) 
+    validation_idx = np.random.choice(labeled_idx, int(0.5*len(labeled_idx)), False) # replace=False
     X_validation = list(operator.itemgetter(*validation_idx)(train_buckets[0]))
     print("X_validation[:10]['id'] in warm-sart: ")
     for j in range(10):
