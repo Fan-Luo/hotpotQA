@@ -66,7 +66,7 @@ class RandomSampling():
     # def __init__(self, model):
     #     super().__init__(model)
 
-    def query(self, config, X_train, labeled_idx, amount, iter_id, experiment):
+    def query(self, config, X_train, labeled_idx, amount, iter_id, experiment_key):
         unlabeled_idx = get_unlabeled_idx(X_train, labeled_idx)
         return np.hstack((labeled_idx, np.random.choice(unlabeled_idx, amount, replace=False)))
 
@@ -80,7 +80,7 @@ class UncertaintySampling():
     #     super().__init__(model)
     def __init__(self):
         pass
-    def query(self, config, X_train, labeled_idx, amount, iter_id, experiment):
+    def query(self, config, X_train, labeled_idx, amount, iter_id, experiment_key):
 
         unlabeled_idx = get_unlabeled_idx(X_train, labeled_idx)
         unlabeled_train_datapoints = list(operator.itemgetter(*unlabeled_idx)(X_train))    
@@ -119,6 +119,7 @@ class UncertaintySampling():
             
             qids.append(predictions['qids'][prediction_idx])
         
+        experiment = ExistingExperiment(api_key="Q8LzfxMlAfA3ABWwq9fJDoR6r",previous_experiment=experiment_key)
         experiment.log_histogram_3d(ans_start_score, name="ans_start_score", step=iter_id)
         experiment.log_histogram_3d(ans_end_score, name="ans_end_score", step=iter_id)
         experiment.log_histogram_3d(type_score, name="type_score", step=iter_id)
@@ -146,9 +147,9 @@ class CombinedSampling():
         self.method1 = method1()
         self.method2 = method2()
 
-    def query(self, config, X_train, labeled_idx, amount, iter_id, experiment):
-        labeled_idx = self.method1.query(config, X_train, labeled_idx, int(amount/2), iter_id, experiment)
-        return self.method2.query(config, X_train, labeled_idx, int(amount/2), iter_id, experiment)
+    def query(self, config, X_train, labeled_idx, amount, iter_id, experiment_key):
+        labeled_idx = self.method1.query(config, X_train, labeled_idx, int(amount/2), iter_id, experiment_key)
+        return self.method2.query(config, X_train, labeled_idx, int(amount/2), iter_id, experiment_key)
 
     def update_model(self):
         # del self.model
@@ -273,11 +274,8 @@ def evaluate_sample(config, training_function, X_validation, X_train, experiment
     print("evaluate on dev in iteration ", iteration_idx, " takes time: ", time.strftime("%Hh %Mm %Ss", time.gmtime(T)))
     
     experiment = ExistingExperiment(api_key="Q8LzfxMlAfA3ABWwq9fJDoR6r",previous_experiment=experiment_key)
-    experiment_key = experiment.get_key() # have to update the key
     for k in metrics.keys():
         experiment.log_metric(k, metrics[k], step=iteration_idx)
-    
-    return experiment_key
     
 def active_train(config):
 
@@ -318,7 +316,7 @@ def active_train(config):
     experiment_iteration.append(Experiment(api_key="Q8LzfxMlAfA3ABWwq9fJDoR6r", project_name="hotpotqa-al", workspace="fan-luo"))
     experiment_iteration[0].set_name(config.run_name + "iteration0")  
     query_method = set_query_method(config.method, config.method2)
-    experiment_key = evaluate_sample(config, train, X_validation, X_train, experiment_key, 0, experiment_iteration[0]) # will print evaluation result
+    evaluate_sample(config, train, X_validation, X_train, experiment_key, 0, experiment_iteration[0]) # will print evaluation result
     T_after_warm_sart = time.time() # after warm-sart
     T_warm_sart = T_after_warm_sart - T_before_warm_sart
     print("warm sart time: ", time.strftime("%Hh %Mm %Ss", time.gmtime(T_warm_sart)))
@@ -330,7 +328,7 @@ def active_train(config):
 
         # get the new indices from the algorithm
         # old_labeled = np.copy(labeled_idx)
-        labeled_idx = query_method.query(config, train_buckets[0], labeled_idx, config.label_batch_size, iter_id, experiment)
+        labeled_idx = query_method.query(config, train_buckets[0], labeled_idx, config.label_batch_size, iter_id, experiment_key)
         print("labeled_idx.shape", labeled_idx.shape)
         T_after_query = time.time()
         T_query = T_after_query - T_before_iteration
@@ -357,7 +355,7 @@ def active_train(config):
         experiment_iteration[iter_id].set_name(config.run_name + "iteration" + str(iter_id))
         
         # evaluate the new sample:
-        experiment_key = evaluate_sample(config, train, X_validation, X_train, experiment_key, iter_id, experiment_iteration[iter_id]) #X_validation is constant, always be the of half of the initial
+        evaluate_sample(config, train, X_validation, X_train, experiment_key, iter_id, experiment_iteration[iter_id]) #X_validation is constant, always be the of half of the initial
         T_after_iteration = time.time() # before current iteration
         T_iteration = T_after_iteration - T_before_iteration
         print("iteration ", iter_id, " takes time: ", time.strftime("%Hh %Mm %Ss", time.gmtime(T_iteration)))
