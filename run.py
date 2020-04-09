@@ -25,6 +25,7 @@ nll_all = nn.CrossEntropyLoss(reduce=False, ignore_index=IGNORE_INDEX)
 
 def train(config, train_buckets, validation_buckets, iteration_idx, experiment_iteration):
 
+    T_before_loading = time.time() # before 
     with open(config.word_emb_file, "r") as fh:
         word_mat = np.array(json.load(fh), dtype=np.float32)
     with open(config.char_emb_file, "r") as fh:
@@ -33,7 +34,6 @@ def train(config, train_buckets, validation_buckets, iteration_idx, experiment_i
         validation_eval_file = json.load(fh)
     with open(config.idx2word_file, 'r') as fh:
         idx2word_dict = json.load(fh)
-
 
     # config.save = '{}-{}'.format(config.save, time.strftime("%Y%m%d-%H%M%S"))
     # create_exp_dir(config.save, scripts_to_save=['run.py', 'model.py', 'util.py', 'sp_model.py'])
@@ -82,9 +82,14 @@ def train(config, train_buckets, validation_buckets, iteration_idx, experiment_i
     stop_train = False
     start_time = time.time()
     eval_start_time = time.time()
+    
+    T_after_loading = time.time() # after  
+    T = T_after_loading - T_before_loading
+    print("loading data in train() in iteration ", iteration_idx, " takes time: ", time.strftime("%Hh %Mm %Ss", time.gmtime(T)))
+    
     model.train()
-
     for epoch in range(10000):
+        T_before_epoch = time.time() # before 
         for data in build_train_iterator():
             context_idxs = Variable(data['context_idxs'])
             ques_idxs = Variable(data['ques_idxs'])
@@ -99,7 +104,12 @@ def train(config, train_buckets, validation_buckets, iteration_idx, experiment_i
             end_mapping = Variable(data['end_mapping'])
             all_mapping = Variable(data['all_mapping'])
 
+            T_before_forwardPass = time.time() # before 
             logit1, logit2, predict_type, predict_support = model(context_idxs, ques_idxs, context_char_idxs, ques_char_idxs, context_lens, start_mapping, end_mapping, all_mapping, return_yp=False)
+            T_after_forwardPass = time.time() # after
+            T_forwardPass = T_after_forwardPass - T_before_forwardPass
+            print("Forward Pass in epoch ", epoch, " in iteration ", iteration_idx, " takes time: ", time.strftime("%Hh %Mm %Ss", time.gmtime(T_forwardPass)))
+            
             loss_1 = (nll_sum(predict_type, q_type) + nll_sum(logit1, y1) + nll_sum(logit2, y2)) / context_idxs.size(0)
             loss_2 = nll_average(predict_support.view(-1, 2), is_support.view(-1))
             loss = loss_1 + config.sp_lambda * loss_2
@@ -156,6 +166,11 @@ def train(config, train_buckets, validation_buckets, iteration_idx, experiment_i
                         cur_patience = 0
    
         if stop_train: break
+        
+        T_after_epoch = time.time() # after  
+        T_epoch = T_after_epoch - T_before_epoch
+        print("epoch ", epoch, " in train() in iteration ", iteration_idx, " takes time: ", time.strftime("%Hh %Mm %Ss", time.gmtime(T_epoch)))
+    
     logging('best_validation_F1 {}'.format(best_validation_F1))
 
 def evaluate_batch(data_source, model, max_batches, eval_file, config):

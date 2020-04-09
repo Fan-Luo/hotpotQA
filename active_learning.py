@@ -68,8 +68,11 @@ class RandomSampling():
 
     def query(self, config, X_train, labeled_idx, amount, iter_id, experiment_key):
         unlabeled_idx = get_unlabeled_idx(X_train, labeled_idx)
-        return np.hstack((labeled_idx, np.random.choice(unlabeled_idx, amount, replace=False)))
-
+        if(amount < unlabeled_idx):
+            new_labeled_idx = np.random.choice(unlabeled_idx, amount, replace=False)
+        else:
+            new_labeled_idx = unlabeled_idx
+        return np.hstack((labeled_idx, new_labeled_idx))
 
 class UncertaintySampling():
     """
@@ -83,58 +86,76 @@ class UncertaintySampling():
     def query(self, config, X_train, labeled_idx, amount, iter_id, experiment_key):
 
         unlabeled_idx = get_unlabeled_idx(X_train, labeled_idx)
-        unlabeled_train_datapoints = list(operator.itemgetter(*unlabeled_idx)(X_train))    
-        predictions = run_predict_unlabel(config, [unlabeled_train_datapoints] )
-        # print("predictions in query:")
-        # print("len(predictions['softmax_ans_start']) in predict() ", len(predictions['softmax_ans_start']))
-        # print("len(predictions['softmax_ans_end']) in predict() ", len(predictions['softmax_ans_end']))
-        # print("len(predictions['softmax_type']) in predict() ", len(predictions['softmax_type']))
-        # print("len(predictions['predict_support_li']) in predict() ", len(predictions['predict_support_li']))
-        # print("len(predictions['qids']) in predict() ", len(predictions['qids']))
         
-        # print("len(unlabeled_train_datapoints)", len(unlabeled_train_datapoints))
-       
-        # compare predictions[qids] with unlabeled_train_datapoints['id'] to check if the ordered is same 
-        # it turns out the order is different, so the predictions has to be remapped back as the order of unlabeled_idx has 
-        # print("predictions['qids'][:10]", predictions['qids'][:10])
-        # for i in range(10):
-        #     print("unlabeled_train_datapoints[", i, "]['id']", unlabeled_train_datapoints[i]['id'])
-        
-        ans_start_score = []
-        ans_end_score = []
-        type_score = []
-        sp_score = []
-        qids = []
-        for i in range(len(unlabeled_train_datapoints)):
-            #map back to the same order as unlabeled_train_datapoints according to qid
-            prediction_idx = predictions['qids'].index(unlabeled_train_datapoints[i]['id'])
+        if(amount < unlabeled_idx):
+            unlabeled_train_datapoints = list(operator.itemgetter(*unlabeled_idx)(X_train))    
+            predictions = run_predict_unlabel(config, [unlabeled_train_datapoints] )
+            # print("predictions in query:")
+            # print("len(predictions['softmax_ans_start']) in predict() ", len(predictions['softmax_ans_start']))
+            # print("len(predictions['softmax_ans_end']) in predict() ", len(predictions['softmax_ans_end']))
+            # print("len(predictions['softmax_type']) in predict() ", len(predictions['softmax_type']))
+            # print("len(predictions['predict_support_li']) in predict() ", len(predictions['predict_support_li']))
+            # print("len(predictions['qids']) in predict() ", len(predictions['qids']))
             
-            ans_start_score.append(np.max(predictions['softmax_ans_start'][prediction_idx]))
-            ans_end_score.append(np.max(predictions['softmax_ans_end'][prediction_idx]))
-            type_score.append(np.max(predictions['softmax_type'][prediction_idx]))
+            # print("len(unlabeled_train_datapoints)", len(unlabeled_train_datapoints))
+           
+            # compare predictions[qids] with unlabeled_train_datapoints['id'] to check if the ordered is same 
+            # it turns out the order is different, so the predictions has to be remapped back as the order of unlabeled_idx has 
+            # print("predictions['qids'][:10]", predictions['qids'][:10])
+            # for i in range(10):
+            #     print("unlabeled_train_datapoints[", i, "]['id']", unlabeled_train_datapoints[i]['id'])
             
-            predict_support = predictions['predict_support_li'][prediction_idx]
-            top2_sp_score = predict_support.take(np.argsort(predict_support)[-2:])
-            sp_score.append(np.average(top2_sp_score))
+            ans_start_scores = []
+            ans_end_scores = []
+            type_scores = []
+            sp_scores = []
+            qids = []
+            for i in range(len(unlabeled_train_datapoints)):
+                #map back to the same order as unlabeled_train_datapoints according to qid
+                prediction_idx = predictions['qids'].index(unlabeled_train_datapoints[i]['id'])
+                
+                ans_start_score = np.max(predictions['softmax_ans_start'][prediction_idx])
+                ans_end_score = np.max(predictions['softmax_ans_end'][prediction_idx])
+                type_score = np.max(predictions['softmax_type'][prediction_idx])
+                
+                predict_support = predictions['predict_support_li'][prediction_idx]
+                top2_sp_score = predict_support.take(np.argsort(predict_support)[-2:])
+                sp_score = np.average(top2_sp_score)
+                
+                if(ans_start_score > 1.0):
+                    print("!!!ans_start_score > 1.0: ", ans_start_score)
+                if(ans_end_score > 1.0):
+                    print("!!!ans_end_score > 1.0: ", ans_end_score)
+                if(type_score > 1.0):
+                    print("!!!type_score > 1.0: ", type_score)
+                if(sp_score > 1.0):
+                    print("!!!sp_score > 1.0: ", sp_score)
+                
+                ans_start_scores.append(ans_start_score)
+                ans_end_scores.append(ans_end_score)
+                type_scores.append(type_score)
+                sp_scores.append(sp_score)
+                qids.append(predictions['qids'][prediction_idx])
             
-            qids.append(predictions['qids'][prediction_idx])
-        
-        experiment = ExistingExperiment(api_key="Q8LzfxMlAfA3ABWwq9fJDoR6r",previous_experiment=experiment_key)
-        experiment.log_histogram_3d(ans_start_score, name="ans_start_score", step=iter_id)
-        experiment.log_histogram_3d(ans_end_score, name="ans_end_score", step=iter_id)
-        experiment.log_histogram_3d(type_score, name="type_score", step=iter_id)
-        experiment.log_histogram_3d(sp_score, name="sp_score", step=iter_id)
-        # print("ans_start_score ", ans_start_score)
-        # print("ans_end_score ", ans_end_score)
-        # print("type_score ", type_score)
-        # print("sp_score ", sp_score)
-        # print("len(qids) ", len(qids))
-        # print("qids[:10]", qids[:10])
-        
-        unlabeled_predictions = (1.0 - config.sp_uncertainty_lambda) * (np.array(ans_start_score) + np.array(ans_end_score) + np.array(type_score)) + config.sp_uncertainty_lambda * np.array(sp_score) # logit1_score + logit2_score
-        # print("unlabeled_predictions.shape ", unlabeled_predictions.shape)
-        selected_indices = np.argpartition(unlabeled_predictions, amount)[:amount]
-        return np.hstack((labeled_idx, unlabeled_idx[selected_indices]))
+            experiment = ExistingExperiment(api_key="Q8LzfxMlAfA3ABWwq9fJDoR6r",previous_experiment=experiment_key)
+            experiment.log_histogram_3d(ans_start_scores, name="ans_start_score", step=iter_id)
+            experiment.log_histogram_3d(ans_end_scores, name="ans_end_score", step=iter_id)
+            experiment.log_histogram_3d(type_scores, name="type_score", step=iter_id)
+            experiment.log_histogram_3d(sp_scores, name="sp_score", step=iter_id)
+            # print("ans_start_scores ", ans_start_scores)
+            # print("ans_end_scores ", ans_end_scores)
+            # print("type_scores ", type_scores)
+            # print("sp_scores ", sp_scores)
+            # print("len(qids) ", len(qids))
+            # print("qids[:10]", qids[:10])
+            
+            unlabeled_predictions = (1.0 - config.sp_uncertainty_lambda) * (np.array(ans_start_scores) + np.array(ans_end_scores) + np.array(type_scores)) + config.sp_uncertainty_lambda * np.array(sp_scores) # logit1_score + logit2_score
+            # print("unlabeled_predictions.shape ", unlabeled_predictions.shape)
+            selected_indices = np.argpartition(unlabeled_predictions, amount)[:amount]
+            new_labeled_idx = unlabeled_idx[selected_indices]
+        else:
+            new_labeled_idx = unlabeled_idx
+        return np.hstack((labeled_idx, new_labeled_idx))
 
 
 class CombinedSampling():
@@ -167,7 +188,11 @@ def get_initial_idx(X_train, initial_idx_path, initial_size, seed):
             labeled_idx = pickle.load(f)
     else:
         print("No Initial Indices Found - Drawing Random Indices...")
-        labeled_idx = np.random.choice(len(X_train), initial_size, replace=False)
+        if(initial_size <= len(X_train)):
+            labeled_idx = np.random.choice(len(X_train), initial_size, replace=False)
+        else:
+            print("ERROR - No enough initial labled examples!")
+            exit()
     return labeled_idx
 
 
@@ -325,38 +350,39 @@ def active_train(config):
     for iter in range(config.iterations):
         iter_id = iter + 1
         T_before_iteration = time.time() # before current iteration
-
-        # get the new indices from the algorithm
-        # old_labeled = np.copy(labeled_idx)
-        labeled_idx = query_method.query(config, train_buckets[0], labeled_idx, config.label_batch_size, iter_id, experiment_key)
-        print("labeled_idx.shape", labeled_idx.shape)
-        T_after_query = time.time()
-        T_query = T_after_query - T_before_iteration
-        print("query in iteration ", iter_id, " takes time: ", time.strftime("%Hh %Mm %Ss", time.gmtime(T_query)))
-        if(np.unique(labeled_idx).shape != labeled_idx.shape):
-            print("!!!labeled_idx has duplicate elements in iteration", iter_id)
-            exit()
-        # # calculate and store the label entropy:
-        # new_idx = labeled_idx[np.logical_not(np.isin(labeled_idx, old_labeled))]
-        # new_labels = Y_train[new_idx]
-        # new_labels /= np.sum(new_labels)
-        # new_labels = np.sum(new_labels, axis=0)
-        # entropy = -np.sum(new_labels * np.log(new_labels + 1e-10))
-        # entropies.append(entropy)
-        # label_distributions.append(new_labels)
-        # queries.append(new_idx)
-        train_idx = labeled_idx[np.logical_not(np.isin(labeled_idx, validation_idx))]
-        X_train = list(operator.itemgetter(*train_idx)(train_buckets[0]))
-        print("X_validation[:10]['id'] in iteration ", iter_id, " : ")
-        for j in range(10):
-            print(X_validation[j]['id'])
+        if(labeled_idx < len(train_buckets[0])):
+            # get the new indices from the algorithm
+            # old_labeled = np.copy(labeled_idx)
+            labeled_idx = query_method.query(config, train_buckets[0], labeled_idx, config.label_batch_size, iter_id, experiment_key)
+            print("labeled_idx.shape", labeled_idx.shape)
+            T_after_query = time.time()
+            T_query = T_after_query - T_before_iteration
+            print("query in iteration ", iter_id, " takes time: ", time.strftime("%Hh %Mm %Ss", time.gmtime(T_query)))
+            if(np.unique(labeled_idx).shape != labeled_idx.shape):
+                print("!!!labeled_idx has duplicate elements in iteration", iter_id)
+                exit()
+            # # calculate and store the label entropy:
+            # new_idx = labeled_idx[np.logical_not(np.isin(labeled_idx, old_labeled))]
+            # new_labels = Y_train[new_idx]
+            # new_labels /= np.sum(new_labels)
+            # new_labels = np.sum(new_labels, axis=0)
+            # entropy = -np.sum(new_labels * np.log(new_labels + 1e-10))
+            # entropies.append(entropy)
+            # label_distributions.append(new_labels)
+            # queries.append(new_idx)
+            train_idx = labeled_idx[np.logical_not(np.isin(labeled_idx, validation_idx))]
+            X_train = list(operator.itemgetter(*train_idx)(train_buckets[0]))
+            print("X_validation[:10]['id'] in iteration ", iter_id, " : ")
+            for j in range(10):
+                print(X_validation[j]['id'])
+                
+            experiment_iteration.append(Experiment(api_key="Q8LzfxMlAfA3ABWwq9fJDoR6r", project_name="hotpotqa-al", workspace="fan-luo"))
+            experiment_iteration[iter_id].set_name(config.run_name + "iteration" + str(iter_id))
             
-        experiment_iteration.append(Experiment(api_key="Q8LzfxMlAfA3ABWwq9fJDoR6r", project_name="hotpotqa-al", workspace="fan-luo"))
-        experiment_iteration[iter_id].set_name(config.run_name + "iteration" + str(iter_id))
-        
-        # evaluate the new sample:
-        evaluate_sample(config, train, X_validation, X_train, experiment_key, iter_id, experiment_iteration[iter_id]) #X_validation is constant, always be the of half of the initial
-        T_after_iteration = time.time() # before current iteration
-        T_iteration = T_after_iteration - T_before_iteration
-        print("iteration ", iter_id, " takes time: ", time.strftime("%Hh %Mm %Ss", time.gmtime(T_iteration)))
-    
+            # evaluate the new sample:
+            evaluate_sample(config, train, X_validation, X_train, experiment_key, iter_id, experiment_iteration[iter_id]) #X_validation is constant, always be the of half of the initial
+            T_after_iteration = time.time() # before current iteration
+            T_iteration = T_after_iteration - T_before_iteration
+            print("iteration ", iter_id, " takes time: ", time.strftime("%Hh %Mm %Ss", time.gmtime(T_iteration)))
+        else:
+            break
