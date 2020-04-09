@@ -68,7 +68,7 @@ class RandomSampling():
 
     def query(self, config, X_train, labeled_idx, amount, iter_id, experiment_key):
         unlabeled_idx = get_unlabeled_idx(X_train, labeled_idx)
-        if(amount < unlabeled_idx):
+        if(amount < unlabeled_idx.shape[0]):
             new_labeled_idx = np.random.choice(unlabeled_idx, amount, replace=False)
         else:
             new_labeled_idx = unlabeled_idx
@@ -87,7 +87,7 @@ class UncertaintySampling():
 
         unlabeled_idx = get_unlabeled_idx(X_train, labeled_idx)
         
-        if(amount < unlabeled_idx):
+        if(amount < unlabeled_idx.shape[0]):
             unlabeled_train_datapoints = list(operator.itemgetter(*unlabeled_idx)(X_train))    
             predictions = run_predict_unlabel(config, [unlabeled_train_datapoints] )
             # print("predictions in query:")
@@ -350,7 +350,7 @@ def active_train(config):
     for iter in range(config.iterations):
         iter_id = iter + 1
         T_before_iteration = time.time() # before current iteration
-        if(labeled_idx < len(train_buckets[0])):
+        if(labeled_idx.shape[0] < len(train_buckets[0])):
             # get the new indices from the algorithm
             # old_labeled = np.copy(labeled_idx)
             labeled_idx = query_method.query(config, train_buckets[0], labeled_idx, config.label_batch_size, iter_id, experiment_key)
