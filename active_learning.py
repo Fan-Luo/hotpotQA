@@ -257,29 +257,29 @@ def set_query_method(method_name, method2_name=None):
     # set the first query method:
     if method_name == 'Random':
         method = RandomSampling
-    elif method == 'CoreSet':
+    elif method_name == 'CoreSet':
         method = CoreSetSampling
-    # elif method == 'CoreSetMIP':
+    # elif method_name == 'CoreSetMIP':
     #     method = CoreSetMIPSampling
-    # elif method == 'Discriminative':
+    # elif method_name == 'Discriminative':
     #     method = DiscriminativeSampling
-    # elif method == 'DiscriminativeLearned':
+    # elif method_name == 'DiscriminativeLearned':
     #     method = DiscriminativeRepresentationSampling
-    # elif method == 'DiscriminativeAE':
+    # elif method_name == 'DiscriminativeAE':
     #     method = DiscriminativeAutoencoderSampling
-    # elif method == 'DiscriminativeStochastic':
+    # elif method_name == 'DiscriminativeStochastic':
     #     method = DiscriminativeStochasticSampling
     elif method_name == 'Uncertainty':
         method = UncertaintySampling
-    # elif method == 'Bayesian':
+    # elif method_name == 'Bayesian':
     #     method = BayesianUncertaintySampling
-    # elif method == 'UncertaintyEntropy':
+    # elif method_name == 'UncertaintyEntropy':
     #     method = UncertaintyEntropySampling
-    # elif method == 'BayesianEntropy':
+    # elif method_name == 'BayesianEntropy':
     #     method = BayesianUncertaintyEntropySampling
-    # elif method == 'EGL':
+    # elif method_name == 'EGL':
     #     method = EGLSampling
-    # elif method == 'Adversarial':
+    # elif method_name == 'Adversarial':
     #     method = AdversarialSampling
 
     # set the second query method:
@@ -287,29 +287,29 @@ def set_query_method(method_name, method2_name=None):
         print("Using Two Methods...")
         if method2_name == 'Random':
             method2 = RandomSampling
-        elif method2 == 'CoreSet':
+        elif method2_name == 'CoreSet':
             method2 = CoreSetSampling
-        # elif method2 == 'CoreSetMIP':
+        # elif method2_name == 'CoreSetMIP':
         #     method2 = CoreSetMIPSampling
-        # elif method2 == 'Discriminative':
+        # elif method2_name == 'Discriminative':
         #     method2 = DiscriminativeSampling
-        # elif method2 == 'DiscriminativeLearned':
+        # elif method2_name == 'DiscriminativeLearned':
         #     method2 = DiscriminativeRepresentationSampling
-        # elif method2 == 'DiscriminativeAE':
+        # elif method2_name == 'DiscriminativeAE':
         #     method2 = DiscriminativeAutoencoderSampling
-        # elif method2 == 'DiscriminativeStochastic':
+        # elif method2_name == 'DiscriminativeStochastic':
         #     method2 = DiscriminativeStochasticSampling
         elif method2_name == 'Uncertainty':
             method2 = UncertaintySampling
-        # elif method2 == 'Bayesian':
+        # elif method2_name == 'Bayesian':
         #     method2 = BayesianUncertaintySampling
-        # elif method2 == 'UncertaintyEntropy':
+        # elif method2_name == 'UncertaintyEntropy':
         #     method2 = UncertaintyEntropySampling
-        # elif method2 == 'BayesianEntropy':
+        # elif method2_name == 'BayesianEntropy':
         #     method2 = BayesianUncertaintyEntropySampling
-        # elif method2 == 'EGL':
+        # elif method2_name == 'EGL':
         #     method2 = EGLSampling
-        # elif method2 == 'Adversarial':
+        # elif method2_name == 'Adversarial':
         #     method2 = AdversarialSampling
         else:
             print("ERROR - UNKNOWN SECOND METHOD!")
