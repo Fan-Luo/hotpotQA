@@ -12,6 +12,7 @@ import operator
 import time
 import shutil
 from comet_ml import Experiment, ExistingExperiment
+from scipy.spatial import distance_matrix
 
 def get_unlabeled_idx(X_train, labeled_idx):
     """
@@ -89,14 +90,8 @@ class UncertaintySampling():
         
         if(amount < unlabeled_idx.shape[0]):
             unlabeled_train_datapoints = list(operator.itemgetter(*unlabeled_idx)(X_train))    
-            predictions = run_predict_unlabel(config, [unlabeled_train_datapoints] )
-            # print("predictions in query:")
-            # print("len(predictions['softmax_ans_start']) in predict() ", len(predictions['softmax_ans_start']))
-            # print("len(predictions['softmax_ans_end']) in predict() ", len(predictions['softmax_ans_end']))
-            # print("len(predictions['softmax_type']) in predict() ", len(predictions['softmax_type']))
-            # print("len(predictions['predict_support_li']) in predict() ", len(predictions['predict_support_li']))
-            # print("len(predictions['qids']) in predict() ", len(predictions['qids']))
-            
+            predictions = run_predict_unlabel(config, [unlabeled_train_datapoints], 'Uncertainty' )
+
             # print("len(unlabeled_train_datapoints)", len(unlabeled_train_datapoints))
            
             # compare predictions[qids] with unlabeled_train_datapoints['id'] to check if the ordered is same 
@@ -122,15 +117,6 @@ class UncertaintySampling():
                 top2_sp_score = predict_support.take(np.argsort(predict_support)[-2:])
                 sp_score = np.average(top2_sp_score)
                 
-                if(ans_start_score > 1.0):
-                    print("!!!ans_start_score > 1.0: ", ans_start_score)
-                if(ans_end_score > 1.0):
-                    print("!!!ans_end_score > 1.0: ", ans_end_score)
-                if(type_score > 1.0):
-                    print("!!!type_score > 1.0: ", type_score)
-                if(sp_score > 1.0):
-                    print("!!!sp_score > 1.0: ", sp_score)
-                
                 ans_start_scores.append(ans_start_score)
                 ans_end_scores.append(ans_end_score)
                 type_scores.append(type_score)
@@ -142,10 +128,6 @@ class UncertaintySampling():
             experiment.log_histogram_3d(ans_end_scores, name="ans_end_score", step=iter_id)
             experiment.log_histogram_3d(type_scores, name="type_score", step=iter_id)
             experiment.log_histogram_3d(sp_scores, name="sp_score", step=iter_id)
-            # print("ans_start_scores ", ans_start_scores)
-            # print("ans_end_scores ", ans_end_scores)
-            # print("type_scores ", type_scores)
-            # print("sp_scores ", sp_scores)
             # print("len(qids) ", len(qids))
             # print("qids[:10]", qids[:10])
             
@@ -157,6 +139,65 @@ class UncertaintySampling():
             new_labeled_idx = unlabeled_idx
         return np.hstack((labeled_idx, new_labeled_idx))
 
+class CoreSetSampling():
+    """
+    An implementation of the greedy core set query strategy.
+    """
+    # same as implementation in https://github.com/JordanAsh/badge/blob/dd35b7a57392ea98ce3ee60b5e91ba995ed3ece7/query_strategies/core_set.py
+    def greedy_k_center(self, labeled, unlabeled, amount):
+
+        greedy_indices = []
+
+        # get the minimum distances between the labeled and unlabeled examples (iteratively, to avoid memory issues):
+        # distance_matrix returns the matrix of all pair-wise distances bwtween 2 matrixes (x: Matrix of M vectors in K dimensions; y: Matrix of N vectors in K dimensions) 
+        min_dist = np.min(distance_matrix(labeled[0, :].reshape((1, labeled.shape[1])), unlabeled), axis=0)
+        min_dist = min_dist.reshape((1, min_dist.shape[0]))
+        for j in range(1, labeled.shape[0], 100):   # j = 1, 101, 201,...
+            if j + 100 < labeled.shape[0]:   #the last labeled.shape[0] % 100 datapoints
+                dist = distance_matrix(labeled[j:j+100, :], unlabeled)
+            else:
+                dist = distance_matrix(labeled[j:, :], unlabeled)
+            min_dist = np.vstack((min_dist, np.min(dist, axis=0).reshape((1, min_dist.shape[1]))))
+            min_dist = np.min(min_dist, axis=0)
+            min_dist = min_dist.reshape((1, min_dist.shape[0]))
+
+        # iteratively insert the farthest index and recalculate the minimum distances:
+        farthest = np.argmax(min_dist)
+        greedy_indices.append(farthest)
+        for i in range(amount-1):  
+        # To query the rest amount-1, only need to update the min_dist matrix with a new row, which is the distance to the last added labelled sample, that is unlabeled[greedy_indices[-1], :]
+            dist = distance_matrix(unlabeled[greedy_indices[-1], :].reshape((1,unlabeled.shape[1])), unlabeled)
+            min_dist = np.vstack((min_dist, dist.reshape((1, min_dist.shape[1]))))
+            min_dist = np.min(min_dist, axis=0)
+            min_dist = min_dist.reshape((1, min_dist.shape[0]))
+            farthest = np.argmax(min_dist)
+            greedy_indices.append(farthest)
+
+        return np.array(greedy_indices)
+
+    def query(self, config, X_train, labeled_idx, amount, iter_id, experiment_key):
+
+        unlabeled_idx = get_unlabeled_idx(X_train, labeled_idx)
+        
+        if(amount < unlabeled_idx.shape[0]):
+            predictions = run_predict_unlabel(config, [X_train], 'CoreSet')
+            
+            question_representation = np.array([])
+            qids = []
+            for i in range(len(X_train)):
+                #map back to the same order as X_train according to qid
+                prediction_idx = predictions['qids'].index(X_train[i]['id'])
+                qids.append(predictions['qids'][prediction_idx])
+                if i == 0:
+                    question_representation = predictions['question_embedding'][prediction_idx]
+                else:
+                    question_representation = np.vstack((question_representation, predictions['question_embedding'][prediction_idx]))
+            
+            # use the learned representation for the k-greedy-center algorithm:
+            new_indices = self.greedy_k_center(question_representation[labeled_idx, :], question_representation[unlabeled_idx, :], amount)
+            return np.hstack((labeled_idx, unlabeled_idx[new_indices]))
+        else:
+            return np.hstack((labeled_idx, unlabeled_idx))
 
 class CombinedSampling():
     """
@@ -200,8 +241,8 @@ def set_query_method(method_name, method2_name=None):
     # set the first query method:
     if method_name == 'Random':
         method = RandomSampling
-    # elif method == 'CoreSet':
-    #     method = CoreSetSampling
+    elif method == 'CoreSet':
+        method = CoreSetSampling
     # elif method == 'CoreSetMIP':
     #     method = CoreSetMIPSampling
     # elif method == 'Discriminative':
@@ -230,8 +271,8 @@ def set_query_method(method_name, method2_name=None):
         print("Using Two Methods...")
         if method2_name == 'Random':
             method2 = RandomSampling
-        # elif method2 == 'CoreSet':
-        #     method2 = CoreSetSampling
+        elif method2 == 'CoreSet':
+            method2 = CoreSetSampling
         # elif method2 == 'CoreSetMIP':
         #     method2 = CoreSetMIPSampling
         # elif method2 == 'Discriminative':
