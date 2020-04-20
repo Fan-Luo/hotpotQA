@@ -137,6 +137,10 @@ class UncertaintySampling():
             new_labeled_idx = unlabeled_idx[selected_indices]
         else:
             new_labeled_idx = unlabeled_idx
+            
+        # experiment = ExistingExperiment(api_key="Q8LzfxMlAfA3ABWwq9fJDoR6r",previous_experiment=experiment_key)
+        # experiment.log_parameter("labeled indexes", np.hstack((labeled_idx, new_labeled_idx)), step=iter_id)    
+            
         return np.hstack((labeled_idx, new_labeled_idx))
 
 class CoreSetSampling():
@@ -180,6 +184,9 @@ class CoreSetSampling():
         unlabeled_idx = get_unlabeled_idx(X_train, labeled_idx)
         
         if(amount < unlabeled_idx.shape[0]):
+            for i in range(5):
+                print("X_train[", i, "]['id']", X_train[i]['id'])
+            
             predictions = run_predict_unlabel(config, [X_train], 'CoreSet')
             
             question_representation = np.array([])
@@ -193,11 +200,20 @@ class CoreSetSampling():
                 else:
                     question_representation = np.vstack((question_representation, predictions['question_embedding'][prediction_idx]))
             
+            print("len(qids) ", len(qids))
+            print("qids[:5]", qids[:5])
+            
             # use the learned representation for the k-greedy-center algorithm:
             new_indices = self.greedy_k_center(question_representation[labeled_idx, :], question_representation[unlabeled_idx, :], amount)
-            return np.hstack((labeled_idx, unlabeled_idx[new_indices]))
+            updated_labeled_idx = np.hstack((labeled_idx, unlabeled_idx[new_indices]))
+            
         else:
-            return np.hstack((labeled_idx, unlabeled_idx))
+            updated_labeled_idx = np.hstack((labeled_idx, unlabeled_idx))
+            
+        # experiment = ExistingExperiment(api_key="Q8LzfxMlAfA3ABWwq9fJDoR6r",previous_experiment=experiment_key)
+        # experiment.log_parameter("labeled indexes", updated_labeled_idx, step=iter_id)
+            
+        return updated_labeled_idx
 
 class CombinedSampling():
     """
@@ -395,6 +411,7 @@ def active_train(config):
             # get the new indices from the algorithm
             # old_labeled = np.copy(labeled_idx)
             labeled_idx = query_method.query(config, train_buckets[0], labeled_idx, config.label_batch_size, iter_id, experiment_key)
+            experiment.log_parameter("labeled indexes", labeled_idx, step=iter_id)  
             print("labeled_idx.shape", labeled_idx.shape)
             T_after_query = time.time()
             T_query = T_after_query - T_before_iteration

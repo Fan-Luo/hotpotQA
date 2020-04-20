@@ -303,6 +303,7 @@ def predict(data_source, model, eval_file, config, prediction_file):
         predictions = dict({'qids': [], 'question_embedding': np.array([])}) 
         predictions['qids'] = qids
         predictions['question_embedding'] = ques_embeds
+        print("predictions['question_embedding'].shape in predict() ", predictions['question_embedding'].shape)
         return predictions
     else:
         prediction = {'answer': answer_dict, 'sp': sp_dict}
