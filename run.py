@@ -97,7 +97,7 @@ def train(config):
     model.train()
 
     for epoch in range(10000):
-        for data in build_train_iterator():
+        for j, data in enumerate(build_train_iterator()):
             context_idxs = Variable(data['context_idxs'])
             ques_idxs = Variable(data['ques_idxs'])
             context_char_idxs = Variable(data['context_char_idxs'])
@@ -137,20 +137,22 @@ def train(config):
                 total_sp_loss = 0
                 start_time = time.time()
 
+            
+            model.eval()
+            metrics = evaluate_batch(build_dev_iterator(), model, 0, dev_eval_file, config)
+            model.train()
+
+            logging('-' * 89)
+            logging('| eval batch {:6d} in epoch {:3d} | time: {:5.2f}s | dev loss {:8.3f} | answer loss {:8.3f} | supporting facts loss {:8.3f} | EM {:.4f} | F1 {:.4f}'.format(j,
+                epoch, time.time()-eval_start_time, metrics['loss'], metrics['ans_loss'], metrics['sp_loss'], metrics['exact_match'], metrics['f1']))
+            logging('-' * 89)
+            experiment.log_metrics({'dev loss':metrics['loss'], 'dev answer loss':metrics['ans_loss'] ,'dev supporting facts loss':metrics['sp_loss'], 'EM':metrics['exact_match'], 'F1': metrics['f1']}, step=global_step)
+
+            eval_start_time = time.time()
+
+            dev_F1 = metrics['f1']
+                
             if global_step % config.checkpoint == 0:
-                model.eval()
-                metrics = evaluate_batch(build_dev_iterator(), model, 0, dev_eval_file, config)
-                model.train()
-
-                logging('-' * 89)
-                logging('| eval {:6d} in epoch {:3d} | time: {:5.2f}s | dev loss {:8.3f} | answer loss {:8.3f} | supporting facts loss {:8.3f} | EM {:.4f} | F1 {:.4f}'.format(global_step//config.checkpoint,
-                    epoch, time.time()-eval_start_time, metrics['loss'], metrics['ans_loss'], metrics['sp_loss'], metrics['exact_match'], metrics['f1']))
-                logging('-' * 89)
-                experiment.log_metrics({'dev loss':metrics['loss'], 'dev answer loss':metrics['ans_loss'] ,'dev supporting facts loss':metrics['sp_loss'], 'EM':metrics['exact_match'], 'F1': metrics['f1']}, step=global_step)
-
-                eval_start_time = time.time()
-
-                dev_F1 = metrics['f1']
                 if best_dev_F1 is None or dev_F1 > best_dev_F1:
                     best_dev_F1 = dev_F1
                     torch.save(ori_model.state_dict(), os.path.join(config.save, 'model.pt'))

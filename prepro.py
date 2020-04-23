@@ -199,14 +199,16 @@ def get_embedding(counter, data_type, limit=-1, emb_file=None, size=None, vec_si
         assert size is not None
         assert vec_size is not None
         with open(emb_file, "r", encoding="utf-8") as fh:
-            for line in tqdm(fh, total=size):
-                array = line.split()
-                word = "".join(array[0:-vec_size])
-                vector = list(map(float, array[-vec_size:]))
-                if word in counter and counter[word] > limit:
+            # In most cases, these vectors are ordered by frequency, so we can safely take the top n words to save some computation.
+            take = 400000
+            for c, line in tqdm(enumerate(fh)):
+                if c < take:
+                    array = line.split()
+                    word = "".join(array[0:-vec_size])
+                    vector = list(map(float, array[-vec_size:]))
                     embedding_dict[word] = vector
-        print("{} / {} tokens have corresponding {} embedding vector".format(
-            len(embedding_dict), len(filtered_elements), data_type))
+        print("{} tokens have corresponding {} embedding vector".format(
+            len(embedding_dict), data_type))
     else:
         assert vec_size is not None
         for token in filtered_elements:
