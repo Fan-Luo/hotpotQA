@@ -14,10 +14,6 @@ import shutil
 from comet_ml import Experiment, ExistingExperiment
 from scipy.spatial import distance_matrix
 
-# global variable 
-with open(config.word_emb_file, "r") as fh:
-    word_mat = np.array(json.load(fh), dtype=np.float32)
-
 def get_unlabeled_idx(X_train, labeled_idx):
     """
     Given the training set and the indices of the labeled examples, return the indices of the unlabeled examples.
@@ -188,11 +184,8 @@ class CoreSetSampling():
         unlabeled_idx = get_unlabeled_idx(X_train, labeled_idx)
         
         if(amount < unlabeled_idx.shape[0]):
-            for i in range(5):
-                print("X_train[", i, "]['id']", X_train[i]['id'])
-            
-            # predictions = run_predict_unlabel(config, [X_train], 'CoreSet')
-            
+            with open(config.word_emb_file, "r") as fh:
+                word_mat = np.array(json.load(fh), dtype=np.float32)
             question_representation = np.array([])
  
             for i in range(len(X_train)):
@@ -405,8 +398,7 @@ def active_train(config):
     T_after_warm_sart = time.time() # after warm-sart
     T_warm_sart = T_after_warm_sart - T_before_warm_sart
     print("warm sart time: ", time.strftime("%Hh %Mm %Ss", time.gmtime(T_warm_sart)))
-    
-
+        
     # iteratively query
     for iter in range(config.iterations):
         iter_id = iter + 1
