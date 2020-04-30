@@ -120,11 +120,11 @@ def train(config, train_buckets, validation_buckets, iteration_idx, experiment_i
             total_loss += loss.data[0]
             
             optimizer.zero_grad()
-            T_before_backwardPass = time.time() # before 
+            # T_before_backwardPass = time.time() # before 
             loss.backward()
-            T_after_backwardPass = time.time() # after 
-            T_backwardPass = T_after_backwardPass - T_before_backwardPass
-            print("Backward Pass in epoch ", epoch, " in iteration ", iteration_idx, " takes time: ", time.strftime("%Hh %Mm %Ss", time.gmtime(T_backwardPass)))
+            # T_after_backwardPass = time.time() # after 
+            # T_backwardPass = T_after_backwardPass - T_before_backwardPass
+            # print("Backward Pass in epoch ", epoch, " in iteration ", iteration_idx, " takes time: ", time.strftime("%Hh %Mm %Ss", time.gmtime(T_backwardPass)))
             optimizer.step()
             
             global_step += 1
