@@ -13,6 +13,7 @@ import time
 import shutil
 from comet_ml import Experiment, ExistingExperiment
 from scipy.spatial import distance_matrix
+import json
 
 def get_unlabeled_idx(X_train, labeled_idx):
     """
