@@ -191,7 +191,7 @@ class CoreSetSampling():
  
             for i in range(len(X_train)):
                 ques_idxs = X_train[i]['ques_idxs']
-                ques_idxs = ques_idxs[ques_idxs> 0]  # 0 is padding, 1 is unknown, questions longer than ques_limit already been discarded in prepro.py
+                ques_idxs = ques_idxs[ques_idxs > 1]  # 0 is padding, 1 is unknown, questions longer than ques_limit already been discarded in prepro.py
                 question_word_embedding_mat = word_mat[ques_idxs]
                 question_embedding = np.mean(question_word_embedding_mat, 0)  # average of word embedding as question embedding
                 
