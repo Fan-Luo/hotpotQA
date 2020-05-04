@@ -14,6 +14,7 @@ import shutil
 from comet_ml import Experiment, ExistingExperiment
 from scipy.spatial import distance_matrix
 import json
+from sklearn.feature_extraction.text import TfidfVectorizer
 
 def get_unlabeled_idx(X_train, labeled_idx):
     """
@@ -68,7 +69,7 @@ class RandomSampling():
     # def __init__(self, model):
     #     super().__init__(model)
 
-    def query(self, config, X_train, labeled_idx, amount, iter_id, experiment_key):
+    def query(self, config, X_train, labeled_idx, amount, iter_id, experiment_key, question_representation):
         unlabeled_idx = get_unlabeled_idx(X_train, labeled_idx)
         if(amount < unlabeled_idx.shape[0]):
             new_labeled_idx = np.random.choice(unlabeled_idx, amount, replace=False)
@@ -85,7 +86,7 @@ class UncertaintySampling():
     #     super().__init__(model)
     def __init__(self):
         pass
-    def query(self, config, X_train, labeled_idx, amount, iter_id, experiment_key):
+    def query(self, config, X_train, labeled_idx, amount, iter_id, experiment_key, question_representation):
 
         unlabeled_idx = get_unlabeled_idx(X_train, labeled_idx)
         
@@ -180,27 +181,13 @@ class CoreSetSampling():
 
         return np.array(greedy_indices)
 
-    def query(self, config, X_train, labeled_idx, amount, iter_id, experiment_key):
+    def query(self, config, X_train, labeled_idx, amount, iter_id, experiment_key, question_representation):
 
         unlabeled_idx = get_unlabeled_idx(X_train, labeled_idx)
         
         if(amount < unlabeled_idx.shape[0]):
-            with open(config.word_emb_file, "r") as fh:
-                word_mat = np.array(json.load(fh), dtype=np.float32)
-            question_representation = np.array([])
- 
-            for i in range(len(X_train)):
-                ques_idxs = X_train[i]['ques_idxs']
-                ques_idxs = ques_idxs[ques_idxs > 1]  # 0 is padding, 1 is unknown, questions longer than ques_limit already been discarded in prepro.py
-                question_word_embedding_mat = word_mat[ques_idxs]
-                question_embedding = np.mean(question_word_embedding_mat, 0)  # average of word embedding as question embedding
-                
-                if i == 0:
-                    question_representation = question_embedding 
-                else:
-                    question_representation = np.vstack((question_representation, question_embedding))
-          
-            # use the learned representation for the k-greedy-center algorithm:
+            question_representation = question_representation.todense()   # convert to regular dense matrix is a easy to code becuase not need to change code elsewhere, but probably not computational effoecient, worry later
+            # use the question_representation for the k-greedy-center algorithm:
             new_indices = self.greedy_k_center(question_representation[labeled_idx, :], question_representation[unlabeled_idx, :], amount)
             updated_labeled_idx = np.hstack((labeled_idx, unlabeled_idx[new_indices]))
             
@@ -223,8 +210,8 @@ class CombinedSampling():
         self.method2 = method2()
 
     def query(self, config, X_train, labeled_idx, amount, iter_id, experiment_key):
-        labeled_idx = self.method1.query(config, X_train, labeled_idx, int(amount/2), iter_id, experiment_key)
-        return self.method2.query(config, X_train, labeled_idx, int(amount/2), iter_id, experiment_key)
+        labeled_idx = self.method1.query(config, X_train, labeled_idx, int(amount/2), iter_id, experiment_key, question_representation)
+        return self.method2.query(config, X_train, labeled_idx, int(amount/2), iter_id, experiment_key, question_representation)
 
     def update_model(self):
         # del self.model
@@ -399,7 +386,23 @@ def active_train(config):
     T_after_warm_sart = time.time() # after warm-sart
     T_warm_sart = T_after_warm_sart - T_before_warm_sart
     print("warm sart time: ", time.strftime("%Hh %Mm %Ss", time.gmtime(T_warm_sart)))
+  
+    question_list = []     
+    with open('idx2word.json', 'r') as fh:
+        idx2word_dict = json.load(fh)
+    with open('word2idx.json', 'r') as fh:
+        word2idx_dict = json.load(fh)
+
+
+    for i in range(len(X_train)):
+        ques_idxs = X_train[i]['ques_idxs']
+        ques_words = ' '.join([idx2word_dict[str(idx)] for idx in ques_idxs if idx > 0])
+        question_list.append(ques_words)
         
+    vectorizer = TfidfVectorizer(vocabulary=word2idx_dict, stop_words='english', use_idf=opts.use_idf)
+    question_representation = vectorizer.fit_transform(question_list)      # a sparse matrix
+    print("number of questions: %d, vector size: %d" % question_representation.shape)     # vector size is vocabulary size
+       
     # iteratively query
     for iter in range(config.iterations):
         iter_id = iter + 1
@@ -407,7 +410,7 @@ def active_train(config):
         if(labeled_idx.shape[0] < len(train_buckets[0])):
             # get the new indices from the algorithm
             # old_labeled = np.copy(labeled_idx)
-            labeled_idx = query_method.query(config, train_buckets[0], labeled_idx, config.label_batch_size, iter_id, experiment_key)
+            labeled_idx = query_method.query(config, train_buckets[0], labeled_idx, config.label_batch_size, iter_id, experiment_key, question_representation)
             experiment.log_parameter("labeled indexes", labeled_idx, step=iter_id)  
             print("labeled_idx.shape", labeled_idx.shape)
             T_after_query = time.time()
