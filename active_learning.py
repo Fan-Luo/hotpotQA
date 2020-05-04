@@ -15,6 +15,7 @@ from comet_ml import Experiment, ExistingExperiment
 from scipy.spatial import distance_matrix
 import json
 from sklearn.feature_extraction.text import TfidfVectorizer
+#https://scikit-learn.org/stable/modules/generated/sklearn.feature_extraction.text.TfidfVectorizer.html
 
 def get_unlabeled_idx(X_train, labeled_idx):
     """
@@ -399,7 +400,7 @@ def active_train(config):
         ques_words = ' '.join([idx2word_dict[str(idx)] for idx in ques_idxs if idx > 0])
         question_list.append(ques_words)
         
-    vectorizer = TfidfVectorizer(vocabulary=word2idx_dict, stop_words='english', use_idf=opts.use_idf)
+    vectorizer = TfidfVectorizer(vocabulary=word2idx_dict, stop_words='english', use_idf=True)
     question_representation = vectorizer.fit_transform(question_list)      # a sparse matrix
     print("number of questions: %d, vector size: %d" % question_representation.shape)     # vector size is vocabulary size
        
