@@ -394,9 +394,8 @@ def active_train(config):
     with open('word2idx.json', 'r') as fh:
         word2idx_dict = json.load(fh)
 
-
-    for i in range(len(X_train)):
-        ques_idxs = X_train[i]['ques_idxs']
+    for i in range(len(train_buckets[0])):
+        ques_idxs = train_buckets[0][i]['ques_idxs']
         ques_words = ' '.join([idx2word_dict[str(idx)] for idx in ques_idxs if idx > 0])
         question_list.append(ques_words)
         
