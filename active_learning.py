@@ -12,7 +12,8 @@ import operator
 import time
 import shutil
 from comet_ml import Experiment, ExistingExperiment
-from scipy.spatial import distance_matrix
+# from scipy.spatial import distance_matrix
+from sklearn.metrics import pairwise_distances
 import json
 from sklearn.feature_extraction.text import TfidfVectorizer
 #https://scikit-learn.org/stable/modules/generated/sklearn.feature_extraction.text.TfidfVectorizer.html
@@ -150,22 +151,24 @@ class CoreSetSampling():
     """
     An implementation of the greedy core set query strategy.
     """
-    # same as implementation in https://github.com/JordanAsh/badge/blob/dd35b7a57392ea98ce3ee60b5e91ba995ed3ece7/query_strategies/core_set.py
+    # This implementation from https://github.com/dsgissin/DiscriminativeActiveLearning
+    # It computes each labeled datapoint to all unlaebled datapoints to build the distance matrix, and eventually choose the min of each column, that is, for each unlabled datapoint, the min distance to labled datapoint
+    # Another implementation in https://github.com/JordanAsh/badge/blob/dd35b7a57392ea98ce3ee60b5e91ba995ed3ece7/query_strategies/core_set.py is similar, but computes each unlabeled datapoint to all laebled datapoints to build the distance matrix, and choose the min of each row 
     def greedy_k_center(self, labeled, unlabeled, amount):
 
         greedy_indices = []
 
         # get the minimum distances between the labeled and unlabeled examples (iteratively, to avoid memory issues):
-        # distance_matrix returns the matrix of all pair-wise distances bwtween 2 matrixes (x: Matrix of M vectors in K dimensions; y: Matrix of N vectors in K dimensions) 
-        min_dist = np.min(distance_matrix(labeled[0, :].reshape((1, labeled.shape[1])), unlabeled), axis=0)
+        # all pair-wise distances bwtween 2 matrixes (x: Matrix of M vectors in K dimensions; y: Matrix of N vectors in K dimensions) 
+        min_dist = np.min(pairwise_distances(labeled[0, :], unlabeled), axis=0)   # compute labeled[0, :] first only becasue need it to use vstack later;  np.min(.., axis=0) is the min of each column, even though only one column now
         min_dist = min_dist.reshape((1, min_dist.shape[0]))
         for j in range(1, labeled.shape[0], 100):   # j = 1, 101, 201,...
             if j + 100 < labeled.shape[0]:   #the last labeled.shape[0] % 100 datapoints
-                dist = distance_matrix(labeled[j:j+100, :], unlabeled)
+                dist = pairwise_distances(labeled[j:j+100, :], unlabeled)
             else:
-                dist = distance_matrix(labeled[j:, :], unlabeled)
-            min_dist = np.vstack((min_dist, np.min(dist, axis=0).reshape((1, min_dist.shape[1]))))
-            min_dist = np.min(min_dist, axis=0)
+                dist = pairwise_distances(labeled[j:, :], unlabeled)
+            min_dist = np.vstack((min_dist, np.min(dist, axis=0).reshape((1, min_dist.shape[1]))))   # np.min(dist, axis=0): min of each column from current 100 rows 
+            min_dist = np.min(min_dist, axis=0)   # accumulated min of each column 
             min_dist = min_dist.reshape((1, min_dist.shape[0]))
 
         # iteratively insert the farthest index and recalculate the minimum distances:
@@ -173,7 +176,7 @@ class CoreSetSampling():
         greedy_indices.append(farthest)
         for i in range(amount-1):  
         # To query the rest amount-1, only need to update the min_dist matrix with a new row, which is the distance to the last added labelled sample, that is unlabeled[greedy_indices[-1], :]
-            dist = distance_matrix(unlabeled[greedy_indices[-1], :].reshape((1,unlabeled.shape[1])), unlabeled)
+            dist = pairwise_distances(unlabeled[greedy_indices[-1], :], unlabeled)
             min_dist = np.vstack((min_dist, dist.reshape((1, min_dist.shape[1]))))
             min_dist = np.min(min_dist, axis=0)
             min_dist = min_dist.reshape((1, min_dist.shape[0]))
@@ -187,7 +190,6 @@ class CoreSetSampling():
         unlabeled_idx = get_unlabeled_idx(X_train, labeled_idx)
         
         if(amount < unlabeled_idx.shape[0]):
-            question_representation = question_representation.todense()   # convert to regular dense matrix is a easy to code becuase not need to change code elsewhere, but probably not computational effoecient, worry later
             # use the question_representation for the k-greedy-center algorithm:
             new_indices = self.greedy_k_center(question_representation[labeled_idx, :], question_representation[unlabeled_idx, :], amount)
             updated_labeled_idx = np.hstack((labeled_idx, unlabeled_idx[new_indices]))
@@ -407,7 +409,7 @@ def active_train(config):
     for iter in range(config.iterations):
         iter_id = iter + 1
         T_before_iteration = time.time() # before current iteration
-        if(labeled_idx.shape[0] < len(train_buckets[0])):
+        if(labeled_idx.shape[0] < len(train_buckets[0])):   
             # get the new indices from the algorithm
             # old_labeled = np.copy(labeled_idx)
             labeled_idx = query_method.query(config, train_buckets[0], labeled_idx, config.label_batch_size, iter_id, experiment_key, question_representation)
