@@ -398,6 +398,7 @@ def active_train(config):
 
     for i in range(len(train_buckets[0])):
         ques_idxs = train_buckets[0][i]['ques_idxs']
+        ques_idxs = ques_idxs[ques_idxs > 1]  # "0":"--NULL--","1":"--OOV--" 
         ques_words = ' '.join([idx2word_dict[str(idx)] for idx in ques_idxs if idx > 0])
         question_list.append(ques_words)
         
