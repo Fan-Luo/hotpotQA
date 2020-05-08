@@ -417,7 +417,13 @@ def active_train(config):
     for i in range(len(train_buckets[0])):
         ques_indices = tfidf_indices[tfidf_indptr[i]:tfidf_indptr[i+1]]
         ques_words = [features[k] for k in ques_indices]  # stop words are removed
-        ques_idxs =  [word2idx_dict[w] for w in ques_words]
+        ques_idxs =  []
+        for w in ques_words:
+            if w in word2idx_dict:
+                ques_idxs.append(word2idx_dict[w])  
+            else:
+                ques_idxs.append(1)  # "0":"--NULL--" (padding), "1":"--OOV--" 
+                    
         question_word_embedding_mat = word_mat[ques_idxs]
         tfidf = tfidf_data[tfidf_indptr[i]:tfidf_indptr[i+1]]   #i-th question's tf-idf array
         question_tfidf_weighted_embedding_mat = question_word_embedding_mat * tfidf[:, np.newaxis]
