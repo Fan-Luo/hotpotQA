@@ -398,13 +398,35 @@ def active_train(config):
 
     for i in range(len(train_buckets[0])):
         ques_idxs = train_buckets[0][i]['ques_idxs']
-        ques_idxs = ques_idxs[ques_idxs > 1]  # "0":"--NULL--","1":"--OOV--" 
+        ques_idxs = ques_idxs[ques_idxs > 1]
         ques_words = ' '.join([idx2word_dict[str(idx)] for idx in ques_idxs if idx > 0])
         question_list.append(ques_words)
         
-    vectorizer = TfidfVectorizer(vocabulary=word2idx_dict, stop_words='english', use_idf=True)
-    question_representation = vectorizer.fit_transform(question_list)      # a sparse matrix
-    print("number of questions: %d, vector size: %d" % question_representation.shape)     # vector size is vocabulary size
+    vectorizer = TfidfVectorizer(stop_words='english', use_idf=True)
+    question_tfidf = vectorizer.fit_transform(question_list)      # a sparse matrix
+    print("number of questions: %d, vector size: %d" % question_tfidf.shape)     # vector size is vocabulary size
+    tfidf_data = question_tfidf.data
+    tfidf_indptr = question_tfidf.indptr
+    tfidf_indices = question_tfidf.indices
+    features = vectorizer.get_feature_names()
+    
+    with open(config.word_emb_file, "r") as fh:
+        word_mat = np.array(json.load(fh), dtype=np.float32)
+    
+    question_representation = np.array([])
+    for i in range(len(train_buckets[0])):
+        ques_indices = tfidf_indices[tfidf_indptr[i]:tfidf_indptr[i+1]]
+        ques_words = [features[k] for k in ques_indices]  # stop words are removed
+        ques_idxs =  [word2idx_dict[w] for w in ques_words]
+        question_word_embedding_mat = word_mat[ques_idxs]
+        tfidf = tfidf_data[tfidf_indptr[i]:tfidf_indptr[i+1]]   #i-th question's tf-idf array
+        question_tfidf_weighted_embedding_mat = question_word_embedding_mat * tfidf[:, np.newaxis]
+        question_tfidf_weighted_embedding =  np.mean(question_tfidf_weighted_embedding_mat, 0) 
+        
+        if i == 0:
+            question_representation = question_tfidf_weighted_embedding 
+        else:	  
+            question_representation = np.vstack((question_representation, question_tfidf_weighted_embedding))
        
     # iteratively query
     for iter in range(config.iterations):
