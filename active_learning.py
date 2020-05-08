@@ -160,7 +160,7 @@ class CoreSetSampling():
 
         # get the minimum distances between the labeled and unlabeled examples (iteratively, to avoid memory issues):
         # all pair-wise distances bwtween 2 matrixes (x: Matrix of M vectors in K dimensions; y: Matrix of N vectors in K dimensions) 
-        min_dist = np.min(pairwise_distances(labeled[0, :], unlabeled), axis=0)   # compute labeled[0, :] first only becasue need it to use vstack later;  np.min(.., axis=0) is the min of each column, even though only one column now
+        min_dist = np.min(pairwise_distances(labeled[0, :].reshape((1, labeled.shape[1])), unlabeled), axis=0)   # compute labeled[0, :] first only becasue need it to use vstack later;  np.min(.., axis=0) is the min of each column, even though only one column now
         min_dist = min_dist.reshape((1, min_dist.shape[0]))
         for j in range(1, labeled.shape[0], 100):   # j = 1, 101, 201,...
             if j + 100 < labeled.shape[0]:   #the last labeled.shape[0] % 100 datapoints
@@ -176,7 +176,7 @@ class CoreSetSampling():
         greedy_indices.append(farthest)
         for i in range(amount-1):  
         # To query the rest amount-1, only need to update the min_dist matrix with a new row, which is the distance to the last added labelled sample, that is unlabeled[greedy_indices[-1], :]
-            dist = pairwise_distances(unlabeled[greedy_indices[-1], :], unlabeled)
+            dist = pairwise_distances(unlabeled[greedy_indices[-1], :].reshape((1, unlabeled.shape[1])), unlabeled)
             min_dist = np.vstack((min_dist, dist.reshape((1, min_dist.shape[1]))))
             min_dist = np.min(min_dist, axis=0)
             min_dist = min_dist.reshape((1, min_dist.shape[0]))
