@@ -429,6 +429,17 @@ def active_train(config):
         question_tfidf_weighted_embedding_mat = question_word_embedding_mat * tfidf[:, np.newaxis]
         question_tfidf_weighted_embedding =  np.mean(question_tfidf_weighted_embedding_mat, 0) 
         
+        if( np.isnan(question_tfidf_weighted_embedding).any() or np.isinf(question_tfidf_weighted_embedding).any() ):
+            print('question_tfidf_weighted_embedding contains NaN or infinity')    
+            print('tfidf: ', tfidf)       
+            print('ques_idxs: ', ques_idxs)
+            print('question_tfidf[i]: ', question_tfidf[i])    
+            print('ques_words: ', [features[k] for k in ques_indices])
+            print('question_list[i]: ', question_list[i])
+            print('question_tfidf_weighted_embedding_mat: ', question_tfidf_weighted_embedding_mat)
+            print('question_tfidf_weighted_embedding: ', question_tfidf_weighted_embedding)
+            input('question_tfidf_weighted_embedding contains NaN or infinity')
+            
         if i == 0:
             question_representation = question_tfidf_weighted_embedding 
         else:	  
