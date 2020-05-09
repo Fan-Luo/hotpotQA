@@ -17,6 +17,18 @@ from sklearn.metrics import pairwise_distances
 import json
 from sklearn.feature_extraction.text import TfidfVectorizer
 #https://scikit-learn.org/stable/modules/generated/sklearn.feature_extraction.text.TfidfVectorizer.html
+import sys
+import lucene
+from java.io import File
+from org.apache.lucene.analysis.standard import StandardAnalyzer
+from org.apache.lucene.document import Document, Field, TextField, StringField
+from org.apache.lucene.index import IndexWriter, IndexWriterConfig
+from org.apache.lucene.store import SimpleFSDirectory
+from org.apache.lucene.util import Version
+from org.apache.lucene.queryparser.classic import QueryParser
+from org.apache.lucene.index import DirectoryReader
+from org.apache.lucene.search import IndexSearcher
+
 
 def get_unlabeled_idx(X_train, labeled_idx):
     """
@@ -71,7 +83,7 @@ class RandomSampling():
     # def __init__(self, model):
     #     super().__init__(model)
 
-    def query(self, config, X_train, labeled_idx, amount, iter_id, experiment_key, question_representation):
+    def query(self, config, X_train, labeled_idx, amount, iter_id, experiment_key, question_list):
         unlabeled_idx = get_unlabeled_idx(X_train, labeled_idx)
         if(amount < unlabeled_idx.shape[0]):
             new_labeled_idx = np.random.choice(unlabeled_idx, amount, replace=False)
@@ -88,7 +100,7 @@ class UncertaintySampling():
     #     super().__init__(model)
     def __init__(self):
         pass
-    def query(self, config, X_train, labeled_idx, amount, iter_id, experiment_key, question_representation):
+    def query(self, config, X_train, labeled_idx, amount, iter_id, experiment_key, question_list):
 
         unlabeled_idx = get_unlabeled_idx(X_train, labeled_idx)
         
@@ -151,56 +163,47 @@ class CoreSetSampling():
     """
     An implementation of the greedy core set query strategy.
     """
-    # This implementation from https://github.com/dsgissin/DiscriminativeActiveLearning
-    # It computes each labeled datapoint to all unlaebled datapoints to build the distance matrix, and eventually choose the min of each column, that is, for each unlabled datapoint, the min distance to labled datapoint
-    # Another implementation in https://github.com/JordanAsh/badge/blob/dd35b7a57392ea98ce3ee60b5e91ba995ed3ece7/query_strategies/core_set.py is similar, but computes each unlabeled datapoint to all laebled datapoints to build the distance matrix, and choose the min of each row 
-    def greedy_k_center(self, labeled, unlabeled, amount):
 
-        greedy_indices = []
-
-        # get the minimum distances between the labeled and unlabeled examples (iteratively, to avoid memory issues):
-        # all pair-wise distances bwtween 2 matrixes (x: Matrix of M vectors in K dimensions; y: Matrix of N vectors in K dimensions) 
-        min_dist = np.min(pairwise_distances(labeled[0, :].reshape((1, labeled.shape[1])), unlabeled), axis=0)   # compute labeled[0, :] first only becasue need it to use vstack later;  np.min(.., axis=0) is the min of each column, even though only one column now
-        min_dist = min_dist.reshape((1, min_dist.shape[0]))
-        for j in range(1, labeled.shape[0], 100):   # j = 1, 101, 201,...
-            if j + 100 < labeled.shape[0]:   #the last labeled.shape[0] % 100 datapoints
-                dist = pairwise_distances(labeled[j:j+100, :], unlabeled)
-            else:
-                dist = pairwise_distances(labeled[j:, :], unlabeled)
-            min_dist = np.vstack((min_dist, np.min(dist, axis=0).reshape((1, min_dist.shape[1]))))   # np.min(dist, axis=0): min of each column from current 100 rows 
-            min_dist = np.min(min_dist, axis=0)   # accumulated min of each column 
-            min_dist = min_dist.reshape((1, min_dist.shape[0]))
-
-        # iteratively insert the farthest index and recalculate the minimum distances:
-        farthest = np.argmax(min_dist)
-        greedy_indices.append(farthest)
-        for i in range(amount-1):  
-        # To query the rest amount-1, only need to update the min_dist matrix with a new row, which is the distance to the last added labelled sample, that is unlabeled[greedy_indices[-1], :]
-            dist = pairwise_distances(unlabeled[greedy_indices[-1], :].reshape((1, unlabeled.shape[1])), unlabeled)
-            min_dist = np.vstack((min_dist, dist.reshape((1, min_dist.shape[1]))))
-            min_dist = np.min(min_dist, axis=0)
-            min_dist = min_dist.reshape((1, min_dist.shape[0]))
-            farthest = np.argmax(min_dist)
-            greedy_indices.append(farthest)
-
-        return np.array(greedy_indices)
-
-    def query(self, config, X_train, labeled_idx, amount, iter_id, experiment_key, question_representation):
+    def query(self, config, X_train, labeled_idx, amount, iter_id, experiment_key, question_list):
 
         unlabeled_idx = get_unlabeled_idx(X_train, labeled_idx)
-        
+
         if(amount < unlabeled_idx.shape[0]):
-            # use the question_representation for the k-greedy-center algorithm:
-            new_indices = self.greedy_k_center(question_representation[labeled_idx, :], question_representation[unlabeled_idx, :], amount)
-            updated_labeled_idx = np.hstack((labeled_idx, unlabeled_idx[new_indices]))
+                    
+            # lucene
+            index_path_str = config.save + '/index'
+            index_path = File(index_path_str).toPath()
+            indexDir = SimpleFSDirectory.open(index_path)        
+
+            for i in range(amount): 
+                scores = []
+                for unlabeled in unlabeled_idx:        
+                    query = QueryParser("question", StandardAnalyzer()).parse(question_list[unlabeled])
+                    reader = DirectoryReader.open(indexDir) #read updated index from file
+                    searcher = IndexSearcher(reader)
+                    hits = searcher.search(query, 1)   # only get the top1
+                    hit = hits.scoreDocs[0]
+                    score = hit.score    # can considered as similarity/distance from this unlabeled question to labeled questions set, max similarity ≈ min distance 
+                    scores.append(score)
+                farthest = np.argmin(np.array(scores))  # leaset similarity
+                new_index = unlabeled_idx[farthest]
+                
+                labeled_idx = np.hstack((labeled_idx, np.array(new_index)))   # add this question which has leaset similarity with labeled questions set to the labeled questions set
+                
+                writerConfig = IndexWriterConfig(StandardAnalyzer())
+                writer = IndexWriter(indexDir, writerConfig)
+                addDoc(writer, question_list[new_index])
+                writer.close();  # actually write into index file 
+                
+                unlabeled_idx = unlabeled_idx[unlabeled_idx != new_index]     # remove this question from unlabeled questions set 
             
         else:
-            updated_labeled_idx = np.hstack((labeled_idx, unlabeled_idx))
+            labeled_idx = np.hstack((labeled_idx, unlabeled_idx))
             
         # experiment = ExistingExperiment(api_key="Q8LzfxMlAfA3ABWwq9fJDoR6r",previous_experiment=experiment_key)
         # experiment.log_parameter("labeled indexes", updated_labeled_idx, step=iter_id)
             
-        return updated_labeled_idx
+        return labeled_idx
 
 class CombinedSampling():
     """
@@ -213,8 +216,8 @@ class CombinedSampling():
         self.method2 = method2()
 
     def query(self, config, X_train, labeled_idx, amount, iter_id, experiment_key):
-        labeled_idx = self.method1.query(config, X_train, labeled_idx, int(amount/2), iter_id, experiment_key, question_representation)
-        return self.method2.query(config, X_train, labeled_idx, int(amount/2), iter_id, experiment_key, question_representation)
+        labeled_idx = self.method1.query(config, X_train, labeled_idx, int(amount/2), iter_id, experiment_key, question_list)
+        return self.method2.query(config, X_train, labeled_idx, int(amount/2), iter_id, experiment_key, question_list)
 
     def update_model(self):
         # del self.model
@@ -401,43 +404,23 @@ def active_train(config):
         ques_idxs = ques_idxs[ques_idxs > 1]
         ques_words = ' '.join([idx2word_dict[str(idx)] for idx in ques_idxs if idx > 0])
         question_list.append(ques_words)
+    
+    lucene.initVM()
+    def addDoc(indexwriter, question):
+        doc = Document()
+        doc.add(TextField("question", question, Field.Store.YES))
+        indexwriter.addDocument(doc)     
         
-    vectorizer = TfidfVectorizer(stop_words='english', use_idf=True)
-    question_tfidf = vectorizer.fit_transform(question_list)      # a sparse matrix
-    print("number of questions: %d, vector size: %d" % question_tfidf.shape)     # vector size is vocabulary size
-    tfidf_data = question_tfidf.data
-    tfidf_indptr = question_tfidf.indptr
-    tfidf_indices = question_tfidf.indices
-    features = vectorizer.get_feature_names()
+    index_path_str = config.save + '/index'
+    index_path = File(index_path_str).toPath()
+    indexDir = SimpleFSDirectory.open(index_path)
+    writerConfig = IndexWriterConfig(StandardAnalyzer())
+    writer = IndexWriter(indexDir, writerConfig)   
     
-    with open(config.word_emb_file, "r") as fh:
-        word_mat = np.array(json.load(fh), dtype=np.float32)
-    
-    question_representation = np.array([])
-    for i in range(len(train_buckets[0])):
-        ques_indices = tfidf_indices[tfidf_indptr[i]:tfidf_indptr[i+1]]
-        ques_words = [features[k] for k in ques_indices]  # stop words are removed
-        if(len(ques_words) == 0):  # question全是stop words, 比如: Where can both and be found ?
-            question_tfidf_weighted_embedding = np.zeros( (300,) )
-        else:
-            ques_idxs =  []
-            for w in ques_words:
-                if w in word2idx_dict:
-                    ques_idxs.append(word2idx_dict[w])  
-                else:
-                    ques_idxs.append(1)  # "0":"--NULL--" (padding), "1":"--OOV--" 
-                        
-            question_word_embedding_mat = word_mat[ques_idxs]
-            tfidf = tfidf_data[tfidf_indptr[i]:tfidf_indptr[i+1]]   #i-th question's tf-idf array
-            question_tfidf_weighted_embedding_mat = question_word_embedding_mat * tfidf[:, np.newaxis]
-            question_tfidf_weighted_embedding =  np.mean(question_tfidf_weighted_embedding_mat, 0) 
-            assert( np.isnan(question_tfidf_weighted_embedding).any() == False and np.isinf(question_tfidf_weighted_embedding).any() == False )
-
-        if i == 0:
-            question_representation = question_tfidf_weighted_embedding 
-        else:	  
-            question_representation = np.vstack((question_representation, question_tfidf_weighted_embedding))
-       
+    for idx in train_idx:
+        addDoc(writer, question_list[idx]);
+    writer.close();    
+        
     # iteratively query
     for iter in range(config.iterations):
         iter_id = iter + 1
@@ -445,7 +428,7 @@ def active_train(config):
         if(labeled_idx.shape[0] < len(train_buckets[0])):   
             # get the new indices from the algorithm
             # old_labeled = np.copy(labeled_idx)
-            labeled_idx = query_method.query(config, train_buckets[0], labeled_idx, config.label_batch_size, iter_id, experiment_key, question_representation)
+            labeled_idx = query_method.query(config, train_buckets[0], labeled_idx, config.label_batch_size, iter_id, experiment_key, question_list)
             experiment.log_parameter("labeled indexes", labeled_idx, step=iter_id)  
             print("labeled_idx.shape", labeled_idx.shape)
             T_after_query = time.time()
