@@ -20,7 +20,7 @@ from sklearn.feature_extraction.text import TfidfVectorizer
 import sys
 import lucene
 from java.io import File
-from org.apache.lucene.analysis.standard import StandardAnalyzer
+from org.apache.lucene.analysis.en import EnglishAnalyzer
 from org.apache.lucene.document import Document, Field, TextField, StringField
 from org.apache.lucene.index import IndexWriter, IndexWriterConfig
 from org.apache.lucene.store import SimpleFSDirectory
@@ -174,23 +174,27 @@ class CoreSetSampling():
             index_path_str = config.save + '/index'
             index_path = File(index_path_str).toPath()
             indexDir = SimpleFSDirectory.open(index_path)        
+            analyzer = EnglishAnalyzer()
 
             for i in range(amount): 
                 scores = []
                 for unlabeled in unlabeled_idx:        
-                    query = QueryParser("question", StandardAnalyzer()).parse(question_list[unlabeled])
+                    query = QueryParser("question", analyzer).parse(QueryParser.escape(question_list[unlabeled]))
                     reader = DirectoryReader.open(indexDir) #read updated index from file
                     searcher = IndexSearcher(reader)
                     hits = searcher.search(query, 1)   # only get the top1
-                    hit = hits.scoreDocs[0]
-                    score = hit.score    # can considered as similarity/distance from this unlabeled question to labeled questions set, max similarity ≈ min distance 
+                    if(len(hits.scoreDocs) == 0):  # no match
+                        score = 0.0
+                    else:
+                        hit = hits.scoreDocs[0]
+                        score = hit.score    # can considered as similarity/distance from this unlabeled question to labeled questions set, max similarity ≈ min distance 
                     scores.append(score)
                 farthest = np.argmin(np.array(scores))  # leaset similarity
                 new_index = unlabeled_idx[farthest]
                 
                 labeled_idx = np.hstack((labeled_idx, np.array(new_index)))   # add this question which has leaset similarity with labeled questions set to the labeled questions set
                 
-                writerConfig = IndexWriterConfig(StandardAnalyzer())
+                writerConfig = IndexWriterConfig(analyzer)
                 writer = IndexWriter(indexDir, writerConfig)
                 addDoc(writer, question_list[new_index])
                 writer.close();  # actually write into index file 
@@ -414,7 +418,8 @@ def active_train(config):
     index_path_str = config.save + '/index'
     index_path = File(index_path_str).toPath()
     indexDir = SimpleFSDirectory.open(index_path)
-    writerConfig = IndexWriterConfig(StandardAnalyzer())
+    analyzer = EnglishAnalyzer()
+    writerConfig = IndexWriterConfig(analyzer)
     writer = IndexWriter(indexDir, writerConfig)   
     
     for idx in train_idx:
