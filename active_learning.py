@@ -352,7 +352,13 @@ def evaluate_sample(config, training_function, X_validation, X_train, experiment
     experiment = ExistingExperiment(api_key="Q8LzfxMlAfA3ABWwq9fJDoR6r",previous_experiment=experiment_key)
     for k in metrics.keys():
         experiment.log_metric(k, metrics[k], step=iteration_idx)
-    
+
+def addDoc(indexwriter, question):
+    doc = Document()
+    doc.add(TextField("question", question, Field.Store.YES))
+    indexwriter.addDocument(doc)     
+        
+        
 def active_train(config):
 
     random.seed(config.seed)
@@ -410,11 +416,6 @@ def active_train(config):
         question_list.append(ques_words)
     
     lucene.initVM()
-    def addDoc(indexwriter, question):
-        doc = Document()
-        doc.add(TextField("question", question, Field.Store.YES))
-        indexwriter.addDocument(doc)     
-        
     index_path_str = config.save + '/index'
     index_path = File(index_path_str).toPath()
     indexDir = SimpleFSDirectory.open(index_path)
