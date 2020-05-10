@@ -185,12 +185,16 @@ class CoreSetSampling():
                     hits = searcher.search(query, 1)   # only get the top1
                     if(len(hits.scoreDocs) == 0):  # no match
                         score = 0.0
+                        new_index = unlabeled
+                        break
                     else:
                         hit = hits.scoreDocs[0]
                         score = hit.score    # can considered as similarity/distance from this unlabeled question to labeled questions set, max similarity ≈ min distance 
                     scores.append(score)
-                farthest = np.argmin(np.array(scores))  # leaset similarity
-                new_index = unlabeled_idx[farthest]
+                
+                if(len(scores) == len(unlabeled_idx)):    # not from break
+                    farthest = np.argmin(np.array(scores))  # leaset similarity
+                    new_index = unlabeled_idx[farthest]
                 
                 labeled_idx = np.hstack((labeled_idx, np.array(new_index)))   # add this question which has leaset similarity with labeled questions set to the labeled questions set
                 
