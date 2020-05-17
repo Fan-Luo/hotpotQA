@@ -431,13 +431,18 @@ def active_train(config):
         addDoc(writer, question_list[idx]);
     writer.close();    
         
+        
+    labeled_idx_file = config.save + '/' + config.run_name + 'labeled_idx.json'
+    with open(labeled_idx_file, 'a+') as labeled_idx_f:
+        labeled_idx_f.write(str(labeled_idx) + '\n')
+    
     # iteratively query
     for iter in range(config.iterations):
         iter_id = iter + 1
         T_before_iteration = time.time() # before current iteration
         if(labeled_idx.shape[0] < len(train_buckets[0])):   
             # get the new indices from the algorithm
-            # old_labeled = np.copy(labeled_idx)
+            old_labeled = np.copy(labeled_idx)
             labeled_idx = query_method.query(config, train_buckets[0], labeled_idx, config.label_batch_size, iter_id, experiment_key, question_list)
             experiment.log_parameter("labeled indexes", labeled_idx, step=iter_id)  
             print("labeled_idx.shape", labeled_idx.shape)
@@ -448,7 +453,9 @@ def active_train(config):
                 print("!!!labeled_idx has duplicate elements in iteration", iter_id)
                 exit()
             # # calculate and store the label entropy:
-            # new_idx = labeled_idx[np.logical_not(np.isin(labeled_idx, old_labeled))]
+            new_idx = labeled_idx[np.logical_not(np.isin(labeled_idx, old_labeled))]
+            with open(labeled_idx_file, 'a+') as labeled_idx_f:
+                labeled_idx_f.write(str(new_idx) + '\n')
             # new_labels = Y_train[new_idx]
             # new_labels /= np.sum(new_labels)
             # new_labels = np.sum(new_labels, axis=0)
