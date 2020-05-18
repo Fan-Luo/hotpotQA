@@ -136,7 +136,7 @@ class SPModel(nn.Module):
         ans_end = outer.max(dim=1)[0]    # end token score for each word
         yp1 = outer.max(dim=2)[0].max(dim=1)[1]
         yp2 = outer.max(dim=1)[0].max(dim=1)[1]
-        return logit1, logit2, predict_type, predict_support, yp1, yp2, ans_start, ans_end, ques_output[:,-1,:]  # ques_output[:,-1,:] is the last hidden state of RNN
+        return logit1, logit2, predict_type, predict_support, yp1, yp2, ans_start, ans_end
 
 class LockedDropout(nn.Module):
     def __init__(self, dropout):
