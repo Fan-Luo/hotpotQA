@@ -12,11 +12,6 @@ import operator
 import time
 import shutil
 from comet_ml import Experiment, ExistingExperiment
-# from scipy.spatial import distance_matrix
-from sklearn.metrics import pairwise_distances
-import json
-from sklearn.feature_extraction.text import TfidfVectorizer
-#https://scikit-learn.org/stable/modules/generated/sklearn.feature_extraction.text.TfidfVectorizer.html
 
 def get_unlabeled_idx(X_train, labeled_idx):
     """
@@ -71,7 +66,7 @@ class RandomSampling():
     # def __init__(self, model):
     #     super().__init__(model)
 
-    def query(self, config, X_train, labeled_idx, amount, iter_id, experiment_key, question_representation):
+    def query(self, config, X_train, labeled_idx, amount, iter_id, experiment_key):
         unlabeled_idx = get_unlabeled_idx(X_train, labeled_idx)
         if(amount < unlabeled_idx.shape[0]):
             new_labeled_idx = np.random.choice(unlabeled_idx, amount, replace=False)
@@ -88,14 +83,20 @@ class UncertaintySampling():
     #     super().__init__(model)
     def __init__(self):
         pass
-    def query(self, config, X_train, labeled_idx, amount, iter_id, experiment_key, question_representation):
+    def query(self, config, X_train, labeled_idx, amount, iter_id, experiment_key):
 
         unlabeled_idx = get_unlabeled_idx(X_train, labeled_idx)
         
         if(amount < unlabeled_idx.shape[0]):
             unlabeled_train_datapoints = list(operator.itemgetter(*unlabeled_idx)(X_train))    
-            predictions = run_predict_unlabel(config, [unlabeled_train_datapoints], 'Uncertainty' )
-
+            predictions = run_predict_unlabel(config, [unlabeled_train_datapoints] )
+            # print("predictions in query:")
+            # print("len(predictions['softmax_ans_start']) in predict() ", len(predictions['softmax_ans_start']))
+            # print("len(predictions['softmax_ans_end']) in predict() ", len(predictions['softmax_ans_end']))
+            # print("len(predictions['softmax_type']) in predict() ", len(predictions['softmax_type']))
+            # print("len(predictions['predict_support_li']) in predict() ", len(predictions['predict_support_li']))
+            # print("len(predictions['qids']) in predict() ", len(predictions['qids']))
+            
             # print("len(unlabeled_train_datapoints)", len(unlabeled_train_datapoints))
            
             # compare predictions[qids] with unlabeled_train_datapoints['id'] to check if the ordered is same 
@@ -121,6 +122,15 @@ class UncertaintySampling():
                 top2_sp_score = predict_support.take(np.argsort(predict_support)[-2:])
                 sp_score = np.average(top2_sp_score)
                 
+                if(ans_start_score > 1.0):
+                    print("!!!ans_start_score > 1.0: ", ans_start_score)
+                if(ans_end_score > 1.0):
+                    print("!!!ans_end_score > 1.0: ", ans_end_score)
+                if(type_score > 1.0):
+                    print("!!!type_score > 1.0: ", type_score)
+                if(sp_score > 1.0):
+                    print("!!!sp_score > 1.0: ", sp_score)
+                
                 ans_start_scores.append(ans_start_score)
                 ans_end_scores.append(ans_end_score)
                 type_scores.append(type_score)
@@ -132,6 +142,10 @@ class UncertaintySampling():
             experiment.log_histogram_3d(ans_end_scores, name="ans_end_score", step=iter_id)
             experiment.log_histogram_3d(type_scores, name="type_score", step=iter_id)
             experiment.log_histogram_3d(sp_scores, name="sp_score", step=iter_id)
+            # print("ans_start_scores ", ans_start_scores)
+            # print("ans_end_scores ", ans_end_scores)
+            # print("type_scores ", type_scores)
+            # print("sp_scores ", sp_scores)
             # print("len(qids) ", len(qids))
             # print("qids[:10]", qids[:10])
             
@@ -141,66 +155,8 @@ class UncertaintySampling():
             new_labeled_idx = unlabeled_idx[selected_indices]
         else:
             new_labeled_idx = unlabeled_idx
-            
-        # experiment = ExistingExperiment(api_key="Q8LzfxMlAfA3ABWwq9fJDoR6r",previous_experiment=experiment_key)
-        # experiment.log_parameter("labeled indexes", np.hstack((labeled_idx, new_labeled_idx)), step=iter_id)    
-            
         return np.hstack((labeled_idx, new_labeled_idx))
 
-class CoreSetSampling():
-    """
-    An implementation of the greedy core set query strategy.
-    """
-    # This implementation from https://github.com/dsgissin/DiscriminativeActiveLearning
-    # It computes each labeled datapoint to all unlaebled datapoints to build the distance matrix, and eventually choose the min of each column, that is, for each unlabled datapoint, the min distance to labled datapoint
-    # Another implementation in https://github.com/JordanAsh/badge/blob/dd35b7a57392ea98ce3ee60b5e91ba995ed3ece7/query_strategies/core_set.py is similar, but computes each unlabeled datapoint to all laebled datapoints to build the distance matrix, and choose the min of each row 
-    def greedy_k_center(self, labeled, unlabeled, amount):
-
-        greedy_indices = []
-
-        # get the minimum distances between the labeled and unlabeled examples (iteratively, to avoid memory issues):
-        # all pair-wise distances bwtween 2 matrixes (x: Matrix of M vectors in K dimensions; y: Matrix of N vectors in K dimensions) 
-        min_dist = np.min(pairwise_distances(labeled[0, :].reshape((1, labeled.shape[1])), unlabeled), axis=0)   # compute labeled[0, :] first only becasue need it to use vstack later;  np.min(.., axis=0) is the min of each column, even though only one column now
-        min_dist = min_dist.reshape((1, min_dist.shape[0]))
-        for j in range(1, labeled.shape[0], 100):   # j = 1, 101, 201,...
-            if j + 100 < labeled.shape[0]:   #the last labeled.shape[0] % 100 datapoints
-                dist = pairwise_distances(labeled[j:j+100, :], unlabeled)
-            else:
-                dist = pairwise_distances(labeled[j:, :], unlabeled)
-            min_dist = np.vstack((min_dist, np.min(dist, axis=0).reshape((1, min_dist.shape[1]))))   # np.min(dist, axis=0): min of each column from current 100 rows 
-            min_dist = np.min(min_dist, axis=0)   # accumulated min of each column 
-            min_dist = min_dist.reshape((1, min_dist.shape[0]))
-
-        # iteratively insert the farthest index and recalculate the minimum distances:
-        farthest = np.argmax(min_dist)
-        greedy_indices.append(farthest)
-        for i in range(amount-1):  
-        # To query the rest amount-1, only need to update the min_dist matrix with a new row, which is the distance to the last added labelled sample, that is unlabeled[greedy_indices[-1], :]
-            dist = pairwise_distances(unlabeled[greedy_indices[-1], :].reshape((1, unlabeled.shape[1])), unlabeled)
-            min_dist = np.vstack((min_dist, dist.reshape((1, min_dist.shape[1]))))
-            min_dist = np.min(min_dist, axis=0)
-            min_dist = min_dist.reshape((1, min_dist.shape[0]))
-            farthest = np.argmax(min_dist)
-            greedy_indices.append(farthest)
-
-        return np.array(greedy_indices)
-
-    def query(self, config, X_train, labeled_idx, amount, iter_id, experiment_key, question_representation):
-
-        unlabeled_idx = get_unlabeled_idx(X_train, labeled_idx)
-        
-        if(amount < unlabeled_idx.shape[0]):
-            # use the question_representation for the k-greedy-center algorithm:
-            new_indices = self.greedy_k_center(question_representation[labeled_idx, :], question_representation[unlabeled_idx, :], amount)
-            updated_labeled_idx = np.hstack((labeled_idx, unlabeled_idx[new_indices]))
-            
-        else:
-            updated_labeled_idx = np.hstack((labeled_idx, unlabeled_idx))
-            
-        # experiment = ExistingExperiment(api_key="Q8LzfxMlAfA3ABWwq9fJDoR6r",previous_experiment=experiment_key)
-        # experiment.log_parameter("labeled indexes", updated_labeled_idx, step=iter_id)
-            
-        return updated_labeled_idx
 
 class CombinedSampling():
     """
@@ -213,8 +169,8 @@ class CombinedSampling():
         self.method2 = method2()
 
     def query(self, config, X_train, labeled_idx, amount, iter_id, experiment_key):
-        labeled_idx = self.method1.query(config, X_train, labeled_idx, int(amount/2), iter_id, experiment_key, question_representation)
-        return self.method2.query(config, X_train, labeled_idx, int(amount/2), iter_id, experiment_key, question_representation)
+        labeled_idx = self.method1.query(config, X_train, labeled_idx, int(amount/2), iter_id, experiment_key)
+        return self.method2.query(config, X_train, labeled_idx, int(amount/2), iter_id, experiment_key)
 
     def update_model(self):
         # del self.model
@@ -244,29 +200,29 @@ def set_query_method(method_name, method2_name=None):
     # set the first query method:
     if method_name == 'Random':
         method = RandomSampling
-    elif method_name == 'CoreSet':
-        method = CoreSetSampling
-    # elif method_name == 'CoreSetMIP':
+    # elif method == 'CoreSet':
+    #     method = CoreSetSampling
+    # elif method == 'CoreSetMIP':
     #     method = CoreSetMIPSampling
-    # elif method_name == 'Discriminative':
+    # elif method == 'Discriminative':
     #     method = DiscriminativeSampling
-    # elif method_name == 'DiscriminativeLearned':
+    # elif method == 'DiscriminativeLearned':
     #     method = DiscriminativeRepresentationSampling
-    # elif method_name == 'DiscriminativeAE':
+    # elif method == 'DiscriminativeAE':
     #     method = DiscriminativeAutoencoderSampling
-    # elif method_name == 'DiscriminativeStochastic':
+    # elif method == 'DiscriminativeStochastic':
     #     method = DiscriminativeStochasticSampling
     elif method_name == 'Uncertainty':
         method = UncertaintySampling
-    # elif method_name == 'Bayesian':
+    # elif method == 'Bayesian':
     #     method = BayesianUncertaintySampling
-    # elif method_name == 'UncertaintyEntropy':
+    # elif method == 'UncertaintyEntropy':
     #     method = UncertaintyEntropySampling
-    # elif method_name == 'BayesianEntropy':
+    # elif method == 'BayesianEntropy':
     #     method = BayesianUncertaintyEntropySampling
-    # elif method_name == 'EGL':
+    # elif method == 'EGL':
     #     method = EGLSampling
-    # elif method_name == 'Adversarial':
+    # elif method == 'Adversarial':
     #     method = AdversarialSampling
 
     # set the second query method:
@@ -274,29 +230,29 @@ def set_query_method(method_name, method2_name=None):
         print("Using Two Methods...")
         if method2_name == 'Random':
             method2 = RandomSampling
-        elif method2_name == 'CoreSet':
-            method2 = CoreSetSampling
-        # elif method2_name == 'CoreSetMIP':
+        # elif method2 == 'CoreSet':
+        #     method2 = CoreSetSampling
+        # elif method2 == 'CoreSetMIP':
         #     method2 = CoreSetMIPSampling
-        # elif method2_name == 'Discriminative':
+        # elif method2 == 'Discriminative':
         #     method2 = DiscriminativeSampling
-        # elif method2_name == 'DiscriminativeLearned':
+        # elif method2 == 'DiscriminativeLearned':
         #     method2 = DiscriminativeRepresentationSampling
-        # elif method2_name == 'DiscriminativeAE':
+        # elif method2 == 'DiscriminativeAE':
         #     method2 = DiscriminativeAutoencoderSampling
-        # elif method2_name == 'DiscriminativeStochastic':
+        # elif method2 == 'DiscriminativeStochastic':
         #     method2 = DiscriminativeStochasticSampling
         elif method2_name == 'Uncertainty':
             method2 = UncertaintySampling
-        # elif method2_name == 'Bayesian':
+        # elif method2 == 'Bayesian':
         #     method2 = BayesianUncertaintySampling
-        # elif method2_name == 'UncertaintyEntropy':
+        # elif method2 == 'UncertaintyEntropy':
         #     method2 = UncertaintyEntropySampling
-        # elif method2_name == 'BayesianEntropy':
+        # elif method2 == 'BayesianEntropy':
         #     method2 = BayesianUncertaintyEntropySampling
-        # elif method2_name == 'EGL':
+        # elif method2 == 'EGL':
         #     method2 = EGLSampling
-        # elif method2_name == 'Adversarial':
+        # elif method2 == 'Adversarial':
         #     method2 = AdversarialSampling
         else:
             print("ERROR - UNKNOWN SECOND METHOD!")
@@ -389,54 +345,6 @@ def active_train(config):
     T_after_warm_sart = time.time() # after warm-sart
     T_warm_sart = T_after_warm_sart - T_before_warm_sart
     print("warm sart time: ", time.strftime("%Hh %Mm %Ss", time.gmtime(T_warm_sart)))
-  
-    question_list = []     
-    with open('idx2word.json', 'r') as fh:
-        idx2word_dict = json.load(fh)
-    with open('word2idx.json', 'r') as fh:
-        word2idx_dict = json.load(fh)
-
-    for i in range(len(train_buckets[0])):
-        ques_idxs = train_buckets[0][i]['ques_idxs']
-        ques_idxs = ques_idxs[ques_idxs > 1]
-        ques_words = ' '.join([idx2word_dict[str(idx)] for idx in ques_idxs if idx > 0])
-        question_list.append(ques_words)
-        
-    vectorizer = TfidfVectorizer(stop_words='english', use_idf=True)
-    question_tfidf = vectorizer.fit_transform(question_list)      # a sparse matrix
-    print("number of questions: %d, vector size: %d" % question_tfidf.shape)     # vector size is vocabulary size
-    tfidf_data = question_tfidf.data
-    tfidf_indptr = question_tfidf.indptr
-    tfidf_indices = question_tfidf.indices
-    features = vectorizer.get_feature_names()
-    
-    with open(config.word_emb_file, "r") as fh:
-        word_mat = np.array(json.load(fh), dtype=np.float32)
-    
-    question_representation = np.array([])
-    for i in range(len(train_buckets[0])):
-        ques_indices = tfidf_indices[tfidf_indptr[i]:tfidf_indptr[i+1]]
-        ques_words = [features[k] for k in ques_indices]  # stop words are removed
-        if(len(ques_words) == 0):  # question全是stop words, 比如: Where can both and be found ?
-            question_tfidf_weighted_embedding = np.zeros( (300,) )
-        else:
-            ques_idxs =  []
-            for w in ques_words:
-                if w in word2idx_dict:
-                    ques_idxs.append(word2idx_dict[w])  
-                else:
-                    ques_idxs.append(1)  # "0":"--NULL--" (padding), "1":"--OOV--" 
-                        
-            question_word_embedding_mat = word_mat[ques_idxs]
-            tfidf = tfidf_data[tfidf_indptr[i]:tfidf_indptr[i+1]]   #i-th question's tf-idf array
-            question_tfidf_weighted_embedding_mat = question_word_embedding_mat * tfidf[:, np.newaxis]
-            question_tfidf_weighted_embedding =  np.mean(question_tfidf_weighted_embedding_mat, 0) 
-            assert( np.isnan(question_tfidf_weighted_embedding).any() == False and np.isinf(question_tfidf_weighted_embedding).any() == False )
-
-        if i == 0:
-            question_representation = question_tfidf_weighted_embedding 
-        else:	  
-            question_representation = np.vstack((question_representation, question_tfidf_weighted_embedding))
     
     labeled_idx_file = config.save + '/' + config.run_name + '_labeled_idx.txt'
     with open(labeled_idx_file, 'a+') as labeled_idx_f:
@@ -447,11 +355,10 @@ def active_train(config):
     for iter in range(config.iterations):
         iter_id = iter + 1
         T_before_iteration = time.time() # before current iteration
-        if(labeled_idx.shape[0] < len(train_buckets[0])):   
+        if(labeled_idx.shape[0] < len(train_buckets[0])):
             # get the new indices from the algorithm
             old_labeled = np.copy(labeled_idx)
-            labeled_idx = query_method.query(config, train_buckets[0], labeled_idx, config.label_batch_size, iter_id, experiment_key, question_representation)
-            experiment.log_parameter("labeled indexes", labeled_idx, step=iter_id)  
+            labeled_idx = query_method.query(config, train_buckets[0], labeled_idx, config.label_batch_size, iter_id, experiment_key)
             print("labeled_idx.shape", labeled_idx.shape)
             T_after_query = time.time()
             T_query = T_after_query - T_before_iteration

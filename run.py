@@ -25,7 +25,7 @@ nll_all = nn.CrossEntropyLoss(reduce=False, ignore_index=IGNORE_INDEX)
 
 def train(config, train_buckets, validation_buckets, iteration_idx, experiment_iteration):
 
-    # T_before_loading = time.time() # before 
+    T_before_loading = time.time() # before 
     with open(config.word_emb_file, "r") as fh:
         word_mat = np.array(json.load(fh), dtype=np.float32)
     with open(config.char_emb_file, "r") as fh:
@@ -83,14 +83,13 @@ def train(config, train_buckets, validation_buckets, iteration_idx, experiment_i
     start_time = time.time()
     eval_start_time = time.time()
     
-    # T_after_loading = time.time() # after  
-    # T = T_after_loading - T_before_loading
-    # print("loading data in train() in iteration ", iteration_idx, " takes time: ", time.strftime("%Hh %Mm %Ss", time.gmtime(T))) # about 2 minutes
+    T_after_loading = time.time() # after  
+    T = T_after_loading - T_before_loading
+    print("loading data in train() in iteration ", iteration_idx, " takes time: ", time.strftime("%Hh %Mm %Ss", time.gmtime(T)))
     
-    T_before_train = time.time() # before  
     model.train()
     for epoch in range(10000):
-        # T_before_epoch = time.time() # before 
+        T_before_epoch = time.time() # before 
         for data in build_train_iterator():
             context_idxs = Variable(data['context_idxs'])
             ques_idxs = Variable(data['ques_idxs'])
@@ -105,11 +104,11 @@ def train(config, train_buckets, validation_buckets, iteration_idx, experiment_i
             end_mapping = Variable(data['end_mapping'])
             all_mapping = Variable(data['all_mapping'])
 
-            # T_before_forwardPass = time.time() # before 
+            T_before_forwardPass = time.time() # before 
             logit1, logit2, predict_type, predict_support = model(context_idxs, ques_idxs, context_char_idxs, ques_char_idxs, context_lens, start_mapping, end_mapping, all_mapping, return_yp=False)
-            # T_after_forwardPass = time.time() # after
-            # T_forwardPass = T_after_forwardPass - T_before_forwardPass
-            # print("Forward Pass in epoch ", epoch, " in iteration ", iteration_idx, " takes time: ", time.strftime("%Hh %Mm %Ss", time.gmtime(T_forwardPass)))  #takes 0s
+            T_after_forwardPass = time.time() # after
+            T_forwardPass = T_after_forwardPass - T_before_forwardPass
+            print("Forward Pass in epoch ", epoch, " in iteration ", iteration_idx, " takes time: ", time.strftime("%Hh %Mm %Ss", time.gmtime(T_forwardPass)))
             
             loss_1 = (nll_sum(predict_type, q_type) + nll_sum(logit1, y1) + nll_sum(logit2, y2)) / context_idxs.size(0)
             loss_2 = nll_average(predict_support.view(-1, 2), is_support.view(-1))
@@ -120,11 +119,7 @@ def train(config, train_buckets, validation_buckets, iteration_idx, experiment_i
             total_loss += loss.data[0]
             
             optimizer.zero_grad()
-            # T_before_backwardPass = time.time() # before 
             loss.backward()
-            # T_after_backwardPass = time.time() # after 
-            # T_backwardPass = T_after_backwardPass - T_before_backwardPass
-            # print("Backward Pass in epoch ", epoch, " in iteration ", iteration_idx, " takes time: ", time.strftime("%Hh %Mm %Ss", time.gmtime(T_backwardPass)))
             optimizer.step()
             
             global_step += 1
@@ -172,15 +167,9 @@ def train(config, train_buckets, validation_buckets, iteration_idx, experiment_i
    
         if stop_train: break
         
-        # T_after_epoch = time.time() # after  
-        # T_epoch = T_after_epoch - T_before_epoch
-        # print("epoch ", epoch, " in train() in iteration ", iteration_idx, " takes time: ", time.strftime("%Hh %Mm %Ss", time.gmtime(T_epoch))) 
-        # for uncertainty sampling, each epoch takes 1 min in iteration0, 8min in iteration1, 15 min in teration2, 22min in teration3, 30 min in teration4,...1h12min in teration10
-    
-    
-    T_after_train = time.time() # after  
-    T_train = T_after_train - T_before_train
-    print("train() in iteration ", iteration_idx, " takes time: ", time.strftime("%Hh %Mm %Ss", time.gmtime(T_train)))
+        T_after_epoch = time.time() # after  
+        T_epoch = T_after_epoch - T_before_epoch
+        print("epoch ", epoch, " in train() in iteration ", iteration_idx, " takes time: ", time.strftime("%Hh %Mm %Ss", time.gmtime(T_epoch)))
     
     logging('best_validation_F1 {}'.format(best_validation_F1))
 
@@ -205,7 +194,7 @@ def evaluate_batch(data_source, model, max_batches, eval_file, config):
         end_mapping = Variable(data['end_mapping'], volatile=True)
         all_mapping = Variable(data['all_mapping'], volatile=True)
 
-        logit1, logit2, predict_type, predict_support, yp1, yp2, _, _, _ = model(context_idxs, ques_idxs, context_char_idxs, ques_char_idxs, context_lens, start_mapping, end_mapping, all_mapping, return_yp=True)
+        logit1, logit2, predict_type, predict_support, yp1, yp2, _, _ = model(context_idxs, ques_idxs, context_char_idxs, ques_char_idxs, context_lens, start_mapping, end_mapping, all_mapping, return_yp=True)
         loss_1 = (nll_sum(predict_type, q_type) + nll_sum(logit1, y1) + nll_sum(logit2, y2)) / context_idxs.size(0) 
         loss_2 = nll_average(predict_support.view(-1, 2), is_support.view(-1))
         loss = loss_1 + config.sp_lambda * loss_2
@@ -236,7 +225,6 @@ def predict(data_source, model, eval_file, config, prediction_file):
     softmax_type = []
     predict_support_li = []
     qids = []
-    ques_embeds = np.array([])
     for step, data in enumerate(tqdm(data_source)):
         context_idxs = Variable(data['context_idxs'], volatile=True)
         ques_idxs = Variable(data['ques_idxs'], volatile=True)
@@ -247,10 +235,10 @@ def predict(data_source, model, eval_file, config, prediction_file):
         end_mapping = Variable(data['end_mapping'], volatile=True)
         all_mapping = Variable(data['all_mapping'], volatile=True)
 
-        logit1, logit2, predict_type, predict_support, yp1, yp2, ans_start, ans_end, ques_embed = model(context_idxs, ques_idxs, context_char_idxs, ques_char_idxs, context_lens, start_mapping, end_mapping, all_mapping, return_yp=True)
+        logit1, logit2, predict_type, predict_support, yp1, yp2, ans_start, ans_end = model(context_idxs, ques_idxs, context_char_idxs, ques_char_idxs, context_lens, start_mapping, end_mapping, all_mapping, return_yp=True)
         
         predict_support_np = torch.sigmoid(predict_support[:, :, 1]).data.cpu().numpy()
-        if prediction_file == 'Uncertainty':
+        if prediction_file == '':
             # softmax_logit1 = m(logit1).data.cpu().numpy()
             # softmax_logit2 = m(logit2).data.cpu().numpy()
             softmax_ans_start.extend(list(m(ans_start).data.cpu().numpy())) # list of numpy array
@@ -263,12 +251,6 @@ def predict(data_source, model, eval_file, config, prediction_file):
             # print("len(softmax_type) in predict() ", len(softmax_type))
             # print("len(predict_support_li) in predict() ", len(predict_support_li))
             # print("len(qids) in predict() ", len(qids))
-        elif prediction_file == 'CoreSet':
-            qids.extend(data['ids'])
-            if ques_embeds.size == 0:
-                ques_embeds = ques_embed.data.cpu().numpy()
-            else:
-                ques_embeds = np.vstack((ques_embeds, ques_embed.data.cpu().numpy()))
         else:
             answer_dict_ = convert_tokens(eval_file, data['ids'], yp1.data.cpu().numpy().tolist(), yp2.data.cpu().numpy().tolist(), np.argmax(predict_type.data.cpu().numpy(), 1))
             answer_dict.update(answer_dict_)
@@ -283,7 +265,7 @@ def predict(data_source, model, eval_file, config, prediction_file):
                         cur_sp_pred.append(eval_file[cur_id]['sent2title_ids'][j])
                 sp_dict.update({cur_id: cur_sp_pred})
     
-    if prediction_file == 'Uncertainty':
+    if prediction_file == '':
         predictions = dict.fromkeys(['softmax_ans_start', 'softmax_ans_end', 'softmax_type', 'predict_support_li', 'qids'],[]) #'softmax_logit1', 'softmax_logit2'
         predictions['softmax_ans_start'] = softmax_ans_start   
         predictions['softmax_ans_end'] = softmax_ans_end
@@ -298,12 +280,6 @@ def predict(data_source, model, eval_file, config, prediction_file):
         print("predictions['predict_support_li'][0].shape in predict() ", predictions['predict_support_li'][0].shape)
         print("predictions['softmax_ans_start'][0].shape in predict() ", predictions['softmax_ans_start'][0].shape)
         print("predictions['softmax_type'][0].shape in predict() ", predictions['softmax_type'][0].shape)
-        return predictions
-    elif prediction_file == 'CoreSet':
-        predictions = dict({'qids': [], 'question_embedding': np.array([])}) 
-        predictions['qids'] = qids
-        predictions['question_embedding'] = ques_embeds
-        print("predictions['question_embedding'].shape in predict() ", predictions['question_embedding'].shape)
         return predictions
     else:
         prediction = {'answer': answer_dict, 'sp': sp_dict}
@@ -375,14 +351,14 @@ def test(config, data_split, iteration_idx):
     if config.mode == 'train':
         return prediction_file
 
-def run_predict_unlabel(config, buckets, predict_type):
+def run_predict_unlabel(config, buckets):
     model, eval_file, para_limit, ques_limit = load_model_data(config, config.data_split)
     # print("model.module.linear_type.weight in run_predict_unlabel() after load_model_data()", model.module.linear_type.weight)
     model.eval()
     print("unlabeled datapoints in buckets in run_predict_unlabel()",len(buckets[0]))
     def build_iterator():
         return DataIterator(buckets, config.batch_size, para_limit, ques_limit, config.char_limit, False, config.sent_limit)
-    predictions = predict(build_iterator(), model, eval_file, config, predict_type)
+    predictions = predict(build_iterator(), model, eval_file, config, '')
     return predictions
     
 def run_evaluate_dev(config, iteration_idx):
