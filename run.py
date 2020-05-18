@@ -90,7 +90,7 @@ def train(config, train_buckets, validation_buckets, iteration_idx, experiment_i
     T_before_train = time.time() # before  
     model.train()
     for epoch in range(10000):
-        T_before_epoch = time.time() # before 
+        # T_before_epoch = time.time() # before 
         for data in build_train_iterator():
             context_idxs = Variable(data['context_idxs'])
             ques_idxs = Variable(data['ques_idxs'])
@@ -120,11 +120,11 @@ def train(config, train_buckets, validation_buckets, iteration_idx, experiment_i
             total_loss += loss.data[0]
             
             optimizer.zero_grad()
-            T_before_backwardPass = time.time() # before 
+            # T_before_backwardPass = time.time() # before 
             loss.backward()
-            T_after_backwardPass = time.time() # after 
-            T_backwardPass = T_after_backwardPass - T_before_backwardPass
-            print("Backward Pass in epoch ", epoch, " in iteration ", iteration_idx, " takes time: ", time.strftime("%Hh %Mm %Ss", time.gmtime(T_backwardPass)))
+            # T_after_backwardPass = time.time() # after 
+            # T_backwardPass = T_after_backwardPass - T_before_backwardPass
+            # print("Backward Pass in epoch ", epoch, " in iteration ", iteration_idx, " takes time: ", time.strftime("%Hh %Mm %Ss", time.gmtime(T_backwardPass)))
             optimizer.step()
             
             global_step += 1
@@ -172,9 +172,9 @@ def train(config, train_buckets, validation_buckets, iteration_idx, experiment_i
    
         if stop_train: break
         
-        T_after_epoch = time.time() # after  
-        T_epoch = T_after_epoch - T_before_epoch
-        print("epoch ", epoch, " in train() in iteration ", iteration_idx, " takes time: ", time.strftime("%Hh %Mm %Ss", time.gmtime(T_epoch))) 
+        # T_after_epoch = time.time() # after  
+        # T_epoch = T_after_epoch - T_before_epoch
+        # print("epoch ", epoch, " in train() in iteration ", iteration_idx, " takes time: ", time.strftime("%Hh %Mm %Ss", time.gmtime(T_epoch))) 
         # for uncertainty sampling, each epoch takes 1 min in iteration0, 8min in iteration1, 15 min in teration2, 22min in teration3, 30 min in teration4,...1h12min in teration10
     
     
