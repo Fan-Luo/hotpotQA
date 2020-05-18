@@ -13,7 +13,6 @@ import time
 import shutil
 from comet_ml import Experiment, ExistingExperiment
 from scipy.spatial import distance_matrix
-import json
 
 def get_unlabeled_idx(X_train, labeled_idx):
     """
@@ -185,21 +184,25 @@ class CoreSetSampling():
         unlabeled_idx = get_unlabeled_idx(X_train, labeled_idx)
         
         if(amount < unlabeled_idx.shape[0]):
-            with open(config.word_emb_file, "r") as fh:
-                word_mat = np.array(json.load(fh), dtype=np.float32)
+            for i in range(5):
+                print("X_train[", i, "]['id']", X_train[i]['id'])
+            
+            predictions = run_predict_unlabel(config, [X_train], 'CoreSet')
+            
             question_representation = np.array([])
- 
+            qids = []
             for i in range(len(X_train)):
-                ques_idxs = X_train[i]['ques_idxs']
-                ques_idxs = ques_idxs[ques_idxs > 1]  # 0 is padding, 1 is unknown, questions longer than ques_limit already been discarded in prepro.py
-                question_word_embedding_mat = word_mat[ques_idxs]
-                question_embedding = np.mean(question_word_embedding_mat, 0)  # average of word embedding as question embedding
-                
+                #map back to the same order as X_train according to qid
+                prediction_idx = predictions['qids'].index(X_train[i]['id'])
+                qids.append(predictions['qids'][prediction_idx])
                 if i == 0:
-                    question_representation = question_embedding 
+                    question_representation = predictions['question_embedding'][prediction_idx]
                 else:
-                    question_representation = np.vstack((question_representation, question_embedding))
-          
+                    question_representation = np.vstack((question_representation, predictions['question_embedding'][prediction_idx]))
+            
+            print("len(qids) ", len(qids))
+            print("qids[:5]", qids[:5])
+            
             # use the learned representation for the k-greedy-center algorithm:
             new_indices = self.greedy_k_center(question_representation[labeled_idx, :], question_representation[unlabeled_idx, :], amount)
             updated_labeled_idx = np.hstack((labeled_idx, unlabeled_idx[new_indices]))
@@ -399,12 +402,12 @@ def active_train(config):
     T_after_warm_sart = time.time() # after warm-sart
     T_warm_sart = T_after_warm_sart - T_before_warm_sart
     print("warm sart time: ", time.strftime("%Hh %Mm %Ss", time.gmtime(T_warm_sart)))
-        
+    
     labeled_idx_file = config.save + '/' + config.run_name + '_labeled_idx.txt'
     with open(labeled_idx_file, 'a+') as labeled_idx_f:
         json.dump(labeled_idx.tolist(), labeled_idx_f)
-        labeled_idx_f.write('\n')    
-        
+        labeled_idx_f.write('\n')
+
     # iteratively query
     for iter in range(config.iterations):
         iter_id = iter + 1
@@ -425,7 +428,7 @@ def active_train(config):
             new_idx = labeled_idx[np.logical_not(np.isin(labeled_idx, old_labeled))]
             with open(labeled_idx_file, 'a+') as labeled_idx_f:
                 json.dump(new_idx.tolist(), labeled_idx_f)
-                labeled_idx_f.write('\n')     
+                labeled_idx_f.write('\n')      
             # new_labels = Y_train[new_idx]
             # new_labels /= np.sum(new_labels)
             # new_labels = np.sum(new_labels, axis=0)
