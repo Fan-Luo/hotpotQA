@@ -12,11 +12,8 @@ import operator
 import time
 import shutil
 from comet_ml import Experiment, ExistingExperiment
-# from scipy.spatial import distance_matrix
-from sklearn.metrics import pairwise_distances
+from scipy.spatial import distance_matrix
 import json
-from sklearn.feature_extraction.text import TfidfVectorizer
-#https://scikit-learn.org/stable/modules/generated/sklearn.feature_extraction.text.TfidfVectorizer.html
 
 def get_unlabeled_idx(X_train, labeled_idx):
     """
@@ -71,7 +68,7 @@ class RandomSampling():
     # def __init__(self, model):
     #     super().__init__(model)
 
-    def query(self, config, X_train, labeled_idx, amount, iter_id, experiment_key, question_representation):
+    def query(self, config, X_train, labeled_idx, amount, iter_id, experiment_key):
         unlabeled_idx = get_unlabeled_idx(X_train, labeled_idx)
         if(amount < unlabeled_idx.shape[0]):
             new_labeled_idx = np.random.choice(unlabeled_idx, amount, replace=False)
@@ -88,7 +85,7 @@ class UncertaintySampling():
     #     super().__init__(model)
     def __init__(self):
         pass
-    def query(self, config, X_train, labeled_idx, amount, iter_id, experiment_key, question_representation):
+    def query(self, config, X_train, labeled_idx, amount, iter_id, experiment_key):
 
         unlabeled_idx = get_unlabeled_idx(X_train, labeled_idx)
         
@@ -151,24 +148,22 @@ class CoreSetSampling():
     """
     An implementation of the greedy core set query strategy.
     """
-    # This implementation from https://github.com/dsgissin/DiscriminativeActiveLearning
-    # It computes each labeled datapoint to all unlaebled datapoints to build the distance matrix, and eventually choose the min of each column, that is, for each unlabled datapoint, the min distance to labled datapoint
-    # Another implementation in https://github.com/JordanAsh/badge/blob/dd35b7a57392ea98ce3ee60b5e91ba995ed3ece7/query_strategies/core_set.py is similar, but computes each unlabeled datapoint to all laebled datapoints to build the distance matrix, and choose the min of each row 
+    # same as implementation in https://github.com/JordanAsh/badge/blob/dd35b7a57392ea98ce3ee60b5e91ba995ed3ece7/query_strategies/core_set.py
     def greedy_k_center(self, labeled, unlabeled, amount):
 
         greedy_indices = []
 
         # get the minimum distances between the labeled and unlabeled examples (iteratively, to avoid memory issues):
-        # all pair-wise distances bwtween 2 matrixes (x: Matrix of M vectors in K dimensions; y: Matrix of N vectors in K dimensions) 
-        min_dist = np.min(pairwise_distances(labeled[0, :], unlabeled), axis=0)   # compute labeled[0, :] first only becasue need it to use vstack later;  np.min(.., axis=0) is the min of each column, even though only one column now
+        # distance_matrix returns the matrix of all pair-wise distances bwtween 2 matrixes (x: Matrix of M vectors in K dimensions; y: Matrix of N vectors in K dimensions) 
+        min_dist = np.min(distance_matrix(labeled[0, :].reshape((1, labeled.shape[1])), unlabeled), axis=0)
         min_dist = min_dist.reshape((1, min_dist.shape[0]))
         for j in range(1, labeled.shape[0], 100):   # j = 1, 101, 201,...
             if j + 100 < labeled.shape[0]:   #the last labeled.shape[0] % 100 datapoints
-                dist = pairwise_distances(labeled[j:j+100, :], unlabeled)
+                dist = distance_matrix(labeled[j:j+100, :], unlabeled)
             else:
-                dist = pairwise_distances(labeled[j:, :], unlabeled)
-            min_dist = np.vstack((min_dist, np.min(dist, axis=0).reshape((1, min_dist.shape[1]))))   # np.min(dist, axis=0): min of each column from current 100 rows 
-            min_dist = np.min(min_dist, axis=0)   # accumulated min of each column 
+                dist = distance_matrix(labeled[j:, :], unlabeled)
+            min_dist = np.vstack((min_dist, np.min(dist, axis=0).reshape((1, min_dist.shape[1]))))
+            min_dist = np.min(min_dist, axis=0)
             min_dist = min_dist.reshape((1, min_dist.shape[0]))
 
         # iteratively insert the farthest index and recalculate the minimum distances:
@@ -176,7 +171,7 @@ class CoreSetSampling():
         greedy_indices.append(farthest)
         for i in range(amount-1):  
         # To query the rest amount-1, only need to update the min_dist matrix with a new row, which is the distance to the last added labelled sample, that is unlabeled[greedy_indices[-1], :]
-            dist = pairwise_distances(unlabeled[greedy_indices[-1], :], unlabeled)
+            dist = distance_matrix(unlabeled[greedy_indices[-1], :].reshape((1,unlabeled.shape[1])), unlabeled)
             min_dist = np.vstack((min_dist, dist.reshape((1, min_dist.shape[1]))))
             min_dist = np.min(min_dist, axis=0)
             min_dist = min_dist.reshape((1, min_dist.shape[0]))
@@ -185,12 +180,27 @@ class CoreSetSampling():
 
         return np.array(greedy_indices)
 
-    def query(self, config, X_train, labeled_idx, amount, iter_id, experiment_key, question_representation):
+    def query(self, config, X_train, labeled_idx, amount, iter_id, experiment_key):
 
         unlabeled_idx = get_unlabeled_idx(X_train, labeled_idx)
         
         if(amount < unlabeled_idx.shape[0]):
-            # use the question_representation for the k-greedy-center algorithm:
+            with open(config.word_emb_file, "r") as fh:
+                word_mat = np.array(json.load(fh), dtype=np.float32)
+            question_representation = np.array([])
+ 
+            for i in range(len(X_train)):
+                ques_idxs = X_train[i]['ques_idxs']
+                ques_idxs = ques_idxs[ques_idxs > 1]  # 0 is padding, 1 is unknown, questions longer than ques_limit already been discarded in prepro.py
+                question_word_embedding_mat = word_mat[ques_idxs]
+                question_embedding = np.mean(question_word_embedding_mat, 0)  # average of word embedding as question embedding
+                
+                if i == 0:
+                    question_representation = question_embedding 
+                else:
+                    question_representation = np.vstack((question_representation, question_embedding))
+          
+            # use the learned representation for the k-greedy-center algorithm:
             new_indices = self.greedy_k_center(question_representation[labeled_idx, :], question_representation[unlabeled_idx, :], amount)
             updated_labeled_idx = np.hstack((labeled_idx, unlabeled_idx[new_indices]))
             
@@ -213,8 +223,8 @@ class CombinedSampling():
         self.method2 = method2()
 
     def query(self, config, X_train, labeled_idx, amount, iter_id, experiment_key):
-        labeled_idx = self.method1.query(config, X_train, labeled_idx, int(amount/2), iter_id, experiment_key, question_representation)
-        return self.method2.query(config, X_train, labeled_idx, int(amount/2), iter_id, experiment_key, question_representation)
+        labeled_idx = self.method1.query(config, X_train, labeled_idx, int(amount/2), iter_id, experiment_key)
+        return self.method2.query(config, X_train, labeled_idx, int(amount/2), iter_id, experiment_key)
 
     def update_model(self):
         # del self.model
@@ -389,38 +399,20 @@ def active_train(config):
     T_after_warm_sart = time.time() # after warm-sart
     T_warm_sart = T_after_warm_sart - T_before_warm_sart
     print("warm sart time: ", time.strftime("%Hh %Mm %Ss", time.gmtime(T_warm_sart)))
-  
-    question_list = []     
-    with open('idx2word.json', 'r') as fh:
-        idx2word_dict = json.load(fh)
-    with open('word2idx.json', 'r') as fh:
-        word2idx_dict = json.load(fh)
-
-    for i in range(len(train_buckets[0])):
-        ques_idxs = train_buckets[0][i]['ques_idxs']
-        ques_idxs = ques_idxs[ques_idxs > 1]  # "0":"--NULL--","1":"--OOV--" 
-        ques_words = ' '.join([idx2word_dict[str(idx)] for idx in ques_idxs if idx > 0])
-        question_list.append(ques_words)
-        
-    vectorizer = TfidfVectorizer(vocabulary=word2idx_dict, stop_words='english', use_idf=True)
-    question_representation = vectorizer.fit_transform(question_list)      # a sparse matrix
-    print("number of questions: %d, vector size: %d" % question_representation.shape)     # vector size is vocabulary size
-
         
     labeled_idx_file = config.save + '/' + config.run_name + '_labeled_idx.txt'
     with open(labeled_idx_file, 'a+') as labeled_idx_f:
         json.dump(labeled_idx.tolist(), labeled_idx_f)
-        labeled_idx_f.write('\n')
-    
-
+        labeled_idx_f.write('\n')    
+        
     # iteratively query
     for iter in range(config.iterations):
         iter_id = iter + 1
         T_before_iteration = time.time() # before current iteration
-        if(labeled_idx.shape[0] < len(train_buckets[0])):   
+        if(labeled_idx.shape[0] < len(train_buckets[0])):
             # get the new indices from the algorithm
             old_labeled = np.copy(labeled_idx)
-            labeled_idx = query_method.query(config, train_buckets[0], labeled_idx, config.label_batch_size, iter_id, experiment_key, question_representation)
+            labeled_idx = query_method.query(config, train_buckets[0], labeled_idx, config.label_batch_size, iter_id, experiment_key)
             experiment.log_parameter("labeled indexes", labeled_idx, step=iter_id)  
             print("labeled_idx.shape", labeled_idx.shape)
             T_after_query = time.time()
@@ -433,7 +425,7 @@ def active_train(config):
             new_idx = labeled_idx[np.logical_not(np.isin(labeled_idx, old_labeled))]
             with open(labeled_idx_file, 'a+') as labeled_idx_f:
                 json.dump(new_idx.tolist(), labeled_idx_f)
-                labeled_idx_f.write('\n')            
+                labeled_idx_f.write('\n')     
             # new_labels = Y_train[new_idx]
             # new_labels /= np.sum(new_labels)
             # new_labels = np.sum(new_labels, axis=0)
