@@ -372,7 +372,7 @@ def active_train(config):
     
     train_buckets = get_buckets(config.train_record_file)   # get_buckets returns [datapoints], and datapoints is a list, not numpy array
     #print("number of datapoints in train_buckets", len(train_buckets[0]))  #89791
-    random.shuffle(train_buckets)
+    random.shuffle(train_buckets[0])
 
     T_before_warm_sart = time.time() # before warm-sart
     # default inital labeled size: 2.5% of training set 89791 * 2.5 % = 2,245
