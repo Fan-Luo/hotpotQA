@@ -12,7 +12,10 @@ import operator
 import time
 import shutil
 from comet_ml import Experiment, ExistingExperiment
-import json
+# from scipy.spatial import distance_matrix
+from sklearn.metrics import pairwise_distances
+import ujson as json
+from scipy.sparse import csr_matrix
 
 def get_unlabeled_idx(X_train, labeled_idx):
     """
@@ -67,7 +70,7 @@ class RandomSampling():
     # def __init__(self, model):
     #     super().__init__(model)
 
-    def query(self, config, X_train, labeled_idx, amount, iter_id, experiment_key):
+    def query(self, config, X_train, labeled_idx, amount, iter_id, experiment_key, similarity_matrix):
         unlabeled_idx = get_unlabeled_idx(X_train, labeled_idx)
         if(amount < unlabeled_idx.shape[0]):
             new_labeled_idx = np.random.choice(unlabeled_idx, amount, replace=False)
@@ -84,20 +87,14 @@ class UncertaintySampling():
     #     super().__init__(model)
     def __init__(self):
         pass
-    def query(self, config, X_train, labeled_idx, amount, iter_id, experiment_key):
+    def query(self, config, X_train, labeled_idx, amount, iter_id, experiment_key, similarity_matrix):
 
         unlabeled_idx = get_unlabeled_idx(X_train, labeled_idx)
         
         if(amount < unlabeled_idx.shape[0]):
             unlabeled_train_datapoints = list(operator.itemgetter(*unlabeled_idx)(X_train))    
-            predictions = run_predict_unlabel(config, [unlabeled_train_datapoints] )
-            # print("predictions in query:")
-            # print("len(predictions['softmax_ans_start']) in predict() ", len(predictions['softmax_ans_start']))
-            # print("len(predictions['softmax_ans_end']) in predict() ", len(predictions['softmax_ans_end']))
-            # print("len(predictions['softmax_type']) in predict() ", len(predictions['softmax_type']))
-            # print("len(predictions['predict_support_li']) in predict() ", len(predictions['predict_support_li']))
-            # print("len(predictions['qids']) in predict() ", len(predictions['qids']))
-            
+            predictions = run_predict_unlabel(config, [unlabeled_train_datapoints], 'Uncertainty' )
+
             # print("len(unlabeled_train_datapoints)", len(unlabeled_train_datapoints))
            
             # compare predictions[qids] with unlabeled_train_datapoints['id'] to check if the ordered is same 
@@ -123,15 +120,6 @@ class UncertaintySampling():
                 top2_sp_score = predict_support.take(np.argsort(predict_support)[-2:])
                 sp_score = np.average(top2_sp_score)
                 
-                if(ans_start_score > 1.0):
-                    print("!!!ans_start_score > 1.0: ", ans_start_score)
-                if(ans_end_score > 1.0):
-                    print("!!!ans_end_score > 1.0: ", ans_end_score)
-                if(type_score > 1.0):
-                    print("!!!type_score > 1.0: ", type_score)
-                if(sp_score > 1.0):
-                    print("!!!sp_score > 1.0: ", sp_score)
-                
                 ans_start_scores.append(ans_start_score)
                 ans_end_scores.append(ans_end_score)
                 type_scores.append(type_score)
@@ -143,10 +131,6 @@ class UncertaintySampling():
             experiment.log_histogram_3d(ans_end_scores, name="ans_end_score", step=iter_id)
             experiment.log_histogram_3d(type_scores, name="type_score", step=iter_id)
             experiment.log_histogram_3d(sp_scores, name="sp_score", step=iter_id)
-            # print("ans_start_scores ", ans_start_scores)
-            # print("ans_end_scores ", ans_end_scores)
-            # print("type_scores ", type_scores)
-            # print("sp_scores ", sp_scores)
             # print("len(qids) ", len(qids))
             # print("qids[:10]", qids[:10])
             
@@ -156,8 +140,43 @@ class UncertaintySampling():
             new_labeled_idx = unlabeled_idx[selected_indices]
         else:
             new_labeled_idx = unlabeled_idx
+            
+        # experiment = ExistingExperiment(api_key="Q8LzfxMlAfA3ABWwq9fJDoR6r",previous_experiment=experiment_key)
+        # experiment.log_parameter("labeled indexes", np.hstack((labeled_idx, new_labeled_idx)), step=iter_id)    
+            
         return np.hstack((labeled_idx, new_labeled_idx))
 
+class CoreSetSampling():
+    """
+    An implementation of the greedy core set query strategy.
+    """
+    # This implementation from https://github.com/dsgissin/DiscriminativeActiveLearning
+    # It computes each labeled datapoint to all unlaebled datapoints to build the distance matrix, and eventually choose the min of each column, that is, for each unlabled datapoint, the min distance to labled datapoint
+    # Another implementation in https://github.com/JordanAsh/badge/blob/dd35b7a57392ea98ce3ee60b5e91ba995ed3ece7/query_strategies/core_set.py is similar, but computes each unlabeled datapoint to all laebled datapoints to build the distance matrix, and choose the min of each row 
+    def greedy_k_center(self, simi_matrix, labeled_idx, unlabeled_idx, amount):
+
+        for i in range(amount):  
+            min_dist = csr_matrix.min(similarity_matrix[labeled_idx, :], axis=0).toarray().flatten()  # Only gets the rows of labeled questions, and min_dist is min of each column
+            farthest = np.argmax(min_dist[unlabeled_idx])  # argmax of unlabeled columns 
+            new_labeled_idx = unlabeled_idx[farthest]
+            labeled_idx = np.hstack((labeled_idx, new_labeled_idx))
+            unlabeled_idx = unlabeled_idx[unlabeled_idx!=new_labeled_idx]
+
+        return labeled_idx
+
+    def query(self, config, X_train, labeled_idx, amount, iter_id, experiment_key, similarity_matrix):
+
+        unlabeled_idx = get_unlabeled_idx(X_train, labeled_idx)
+        
+        if(amount < unlabeled_idx.shape[0]):
+            updated_labeled_idx = self.greedy_k_center(similarity_matrix, labeled_idx, unlabeled_idx, amount)
+        else:
+            updated_labeled_idx = np.hstack((labeled_idx, unlabeled_idx))
+            
+        # experiment = ExistingExperiment(api_key="Q8LzfxMlAfA3ABWwq9fJDoR6r",previous_experiment=experiment_key)
+        # experiment.log_parameter("labeled indexes", updated_labeled_idx, step=iter_id)
+            
+        return updated_labeled_idx
 
 class CombinedSampling():
     """
@@ -170,8 +189,8 @@ class CombinedSampling():
         self.method2 = method2()
 
     def query(self, config, X_train, labeled_idx, amount, iter_id, experiment_key):
-        labeled_idx = self.method1.query(config, X_train, labeled_idx, int(amount/2), iter_id, experiment_key)
-        return self.method2.query(config, X_train, labeled_idx, int(amount/2), iter_id, experiment_key)
+        labeled_idx = self.method1.query(config, X_train, labeled_idx, int(amount/2), iter_id, experiment_key, similarity_matrix)
+        return self.method2.query(config, X_train, labeled_idx, int(amount/2), iter_id, experiment_key, similarity_matrix)
 
     def update_model(self):
         # del self.model
@@ -201,29 +220,29 @@ def set_query_method(method_name, method2_name=None):
     # set the first query method:
     if method_name == 'Random':
         method = RandomSampling
-    # elif method == 'CoreSet':
-    #     method = CoreSetSampling
-    # elif method == 'CoreSetMIP':
+    elif method_name == 'CoreSet':
+        method = CoreSetSampling
+    # elif method_name == 'CoreSetMIP':
     #     method = CoreSetMIPSampling
-    # elif method == 'Discriminative':
+    # elif method_name == 'Discriminative':
     #     method = DiscriminativeSampling
-    # elif method == 'DiscriminativeLearned':
+    # elif method_name == 'DiscriminativeLearned':
     #     method = DiscriminativeRepresentationSampling
-    # elif method == 'DiscriminativeAE':
+    # elif method_name == 'DiscriminativeAE':
     #     method = DiscriminativeAutoencoderSampling
-    # elif method == 'DiscriminativeStochastic':
+    # elif method_name == 'DiscriminativeStochastic':
     #     method = DiscriminativeStochasticSampling
     elif method_name == 'Uncertainty':
         method = UncertaintySampling
-    # elif method == 'Bayesian':
+    # elif method_name == 'Bayesian':
     #     method = BayesianUncertaintySampling
-    # elif method == 'UncertaintyEntropy':
+    # elif method_name == 'UncertaintyEntropy':
     #     method = UncertaintyEntropySampling
-    # elif method == 'BayesianEntropy':
+    # elif method_name == 'BayesianEntropy':
     #     method = BayesianUncertaintyEntropySampling
-    # elif method == 'EGL':
+    # elif method_name == 'EGL':
     #     method = EGLSampling
-    # elif method == 'Adversarial':
+    # elif method_name == 'Adversarial':
     #     method = AdversarialSampling
 
     # set the second query method:
@@ -231,29 +250,29 @@ def set_query_method(method_name, method2_name=None):
         print("Using Two Methods...")
         if method2_name == 'Random':
             method2 = RandomSampling
-        # elif method2 == 'CoreSet':
-        #     method2 = CoreSetSampling
-        # elif method2 == 'CoreSetMIP':
+        elif method2_name == 'CoreSet':
+            method2 = CoreSetSampling
+        # elif method2_name == 'CoreSetMIP':
         #     method2 = CoreSetMIPSampling
-        # elif method2 == 'Discriminative':
+        # elif method2_name == 'Discriminative':
         #     method2 = DiscriminativeSampling
-        # elif method2 == 'DiscriminativeLearned':
+        # elif method2_name == 'DiscriminativeLearned':
         #     method2 = DiscriminativeRepresentationSampling
-        # elif method2 == 'DiscriminativeAE':
+        # elif method2_name == 'DiscriminativeAE':
         #     method2 = DiscriminativeAutoencoderSampling
-        # elif method2 == 'DiscriminativeStochastic':
+        # elif method2_name == 'DiscriminativeStochastic':
         #     method2 = DiscriminativeStochasticSampling
         elif method2_name == 'Uncertainty':
             method2 = UncertaintySampling
-        # elif method2 == 'Bayesian':
+        # elif method2_name == 'Bayesian':
         #     method2 = BayesianUncertaintySampling
-        # elif method2 == 'UncertaintyEntropy':
+        # elif method2_name == 'UncertaintyEntropy':
         #     method2 = UncertaintyEntropySampling
-        # elif method2 == 'BayesianEntropy':
+        # elif method2_name == 'BayesianEntropy':
         #     method2 = BayesianUncertaintyEntropySampling
-        # elif method2 == 'EGL':
+        # elif method2_name == 'EGL':
         #     method2 = EGLSampling
-        # elif method2 == 'Adversarial':
+        # elif method2_name == 'Adversarial':
         #     method2 = AdversarialSampling
         else:
             print("ERROR - UNKNOWN SECOND METHOD!")
@@ -305,6 +324,8 @@ def evaluate_sample(config, training_function, X_validation, X_train, experiment
     
 def active_train(config):
 
+    print('start active_train at' , end=' ')
+    print( time.ctime() )
     random.seed(config.seed)
     np.random.seed(config.seed)
     torch.manual_seed(config.seed)
@@ -346,20 +367,35 @@ def active_train(config):
     T_after_warm_sart = time.time() # after warm-sart
     T_warm_sart = T_after_warm_sart - T_before_warm_sart
     print("warm sart time: ", time.strftime("%Hh %Mm %Ss", time.gmtime(T_warm_sart)))
-    
+  
+    # question_list = []     
+    with open('idx2word.json', 'r') as fh:
+        idx2word_dict = json.load(fh)
+    with open('word2idx.json', 'r') as fh:
+        word2idx_dict = json.load(fh)
+
+    lucene_similarity_file = 'lucene_similarity_matrix.npz' 
+    loaded = np.load(lucene_similarity_file)
+    lucene_similarity_matrix = csr_matrix((loaded['data'], (loaded['row'], loaded['col'])), shape=(len(train_buckets[0]), len(train_buckets[0])))
+
     labeled_idx_file = config.save + '/' + config.run_name + '_labeled_idx.txt'
     with open(labeled_idx_file, 'a+') as labeled_idx_f:
         json.dump(labeled_idx.tolist(), labeled_idx_f)
-        labeled_idx_f.write('\n')    
-        
+        labeled_idx_f.write('\n')   
+       
+    experiment = ExistingExperiment(api_key="Q8LzfxMlAfA3ABWwq9fJDoR6r",previous_experiment=experiment_key)  # has to use ExistingExperiment because experiment_iteration[] interrupt the logging of emperiment 
+    experiment.log_parameter("labeled indexes", labeled_idx.tolist(), step=0)       
+       
     # iteratively query
     for iter in range(config.iterations):
         iter_id = iter + 1
         T_before_iteration = time.time() # before current iteration
-        if(labeled_idx.shape[0] < len(train_buckets[0])):
+        if(labeled_idx.shape[0] < len(train_buckets[0])):   
             # get the new indices from the algorithm
             old_labeled = np.copy(labeled_idx)
-            labeled_idx = query_method.query(config, train_buckets[0], labeled_idx, config.label_batch_size, iter_id, experiment_key)
+            labeled_idx = query_method.query(config, train_buckets[0], labeled_idx, config.label_batch_size, iter_id, experiment_key, lucene_similarity_matrix)
+            experiment = ExistingExperiment(api_key="Q8LzfxMlAfA3ABWwq9fJDoR6r",previous_experiment=experiment_key)  # has to use ExistingExperiment because experiment_iteration[] interrupt the logging of emperiment 
+            experiment.log_parameter("labeled indexes", labeled_idx.tolist(), step=iter_id)  
             print("labeled_idx.shape", labeled_idx.shape)
             T_after_query = time.time()
             T_query = T_after_query - T_before_iteration
