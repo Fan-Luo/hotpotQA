@@ -1,5 +1,6 @@
 # ref: https://github.com/dsgissin/DiscriminativeActiveLearning
 import os
+import sys
 from prepro import prepro
 from run import train, run_predict_unlabel, run_evaluate_dev
 import argparse
@@ -15,7 +16,10 @@ from comet_ml import Experiment, ExistingExperiment
 # from scipy.spatial import distance_matrix
 from sklearn.metrics import pairwise_distances
 import ujson as json
-from scipy.sparse import csr_matrix
+# from scipy.sparse import csr_matrix
+from sys import getsizeof
+from memory_profiler import profile
+import scipy.sparse
 
 def get_unlabeled_idx(X_train, labeled_idx):
     """
@@ -153,22 +157,35 @@ class CoreSetSampling():
     # This implementation from https://github.com/dsgissin/DiscriminativeActiveLearning
     # It computes each labeled datapoint to all unlaebled datapoints to build the distance matrix, and eventually choose the min of each column, that is, for each unlabled datapoint, the min distance to labled datapoint
     # Another implementation in https://github.com/JordanAsh/badge/blob/dd35b7a57392ea98ce3ee60b5e91ba995ed3ece7/query_strategies/core_set.py is similar, but computes each unlabeled datapoint to all laebled datapoints to build the distance matrix, and choose the min of each row 
-    def greedy_k_center(self, simi_matrix, labeled_idx, unlabeled_idx, amount):
+    
+    @profile  
+    def greedy_k_center(self, similarity_matrix, labeled_idx, unlabeled_idx, amount):
 
         for i in range(amount):  
-            min_dist = csr_matrix.min(similarity_matrix[labeled_idx, :], axis=0).toarray().flatten()  # Only gets the rows of labeled questions, and min_dist is min of each column
-            farthest = np.argmax(min_dist[unlabeled_idx])  # argmax of unlabeled columns 
+            labeled_similarity_matrix = similarity_matrix[labeled_idx, :]              # Only gets the rows of labeled questions
+            min_dist = scipy.sparse.csr_matrix.min(labeled_similarity_matrix, axis=0)  # min_dist is min of each column
+            min_dist = min_dist.tocsr()                                                #convert coo_matrix to Compressed Sparse Row format
+            farthest = scipy.sparse.csr_matrix.argmax(min_dist[:,unlabeled_idx])       # argmax of unlabeled columns 
             new_labeled_idx = unlabeled_idx[farthest]
             labeled_idx = np.hstack((labeled_idx, new_labeled_idx))
             unlabeled_idx = unlabeled_idx[unlabeled_idx!=new_labeled_idx]
-
+            
+            #clear
+            labeled_similarity_matrix = scipy.sparse.csr_matrix((1, 1))
+            min_dist = scipy.sparse.csr_matrix((1, 1))
+            del labeled_similarity_matrix
+            del min_dist
+            gc.collect()
+            
         return labeled_idx
 
+    @profile  
     def query(self, config, X_train, labeled_idx, amount, iter_id, experiment_key, similarity_matrix):
-
+ 
         unlabeled_idx = get_unlabeled_idx(X_train, labeled_idx)
         
         if(amount < unlabeled_idx.shape[0]):
+            print("call greedy_k_center")
             updated_labeled_idx = self.greedy_k_center(similarity_matrix, labeled_idx, unlabeled_idx, amount)
         else:
             updated_labeled_idx = np.hstack((labeled_idx, unlabeled_idx))
@@ -321,7 +338,8 @@ def evaluate_sample(config, training_function, X_validation, X_train, experiment
     experiment = ExistingExperiment(api_key="Q8LzfxMlAfA3ABWwq9fJDoR6r",previous_experiment=experiment_key)
     for k in metrics.keys():
         experiment.log_metric(k, metrics[k], step=iteration_idx)
-    
+
+@profile  
 def active_train(config):
 
     print('start active_train at' , end=' ')
@@ -331,16 +349,31 @@ def active_train(config):
     torch.manual_seed(config.seed)
     torch.cuda.manual_seed_all(config.seed)
     
+    # lucene_similarity_file = 'lucene_similarity_sparse_matrix.npz'  
+    # lucene_similarity_matrix = scipy.sparse.load_npz(lucene_similarity_file)
+
+    lucene_similarity_file = 'lucene_similarity_matrix.npz' 
+    loaded = np.load(lucene_similarity_file, mmap_mode="r")
+    print("successfully load data from lucene_similarity_file")
+    lucene_similarity_matrix = scipy.sparse.csr_matrix((loaded['data'], (loaded['row'], loaded['col'])), shape=(89791, 89791))
+    del loaded.f  #ref: https://stackoverflow.com/questions/9244397/memory-overflow-when-using-numpy-load-in-a-loop
+    loaded.close()
+    del loaded
+    
+    print("successfully create sparse matrix lucene_similarity_matrix from data")
+ 
+    train_buckets = get_buckets(config.train_record_file)   # get_buckets returns [datapoints], and datapoints is a list, not numpy array
+    random.shuffle(train_buckets)
+    
     config.save = '{}-{}'.format(config.save, time.strftime("%Y%m%d-%H%M%S"))
     create_exp_dir(config.save, scripts_to_save=['run.py', 'model.py', 'util.py', 'sp_model.py'])
+    
+    # gc.collect()
     
     experiment = Experiment(api_key="Q8LzfxMlAfA3ABWwq9fJDoR6r", project_name="hotpotqa-al", workspace="fan-luo")
     experiment.set_name(config.run_name)   
     experiment_key = experiment.get_key()
     
-    train_buckets = get_buckets(config.train_record_file)   # get_buckets returns [datapoints], and datapoints is a list, not numpy array
-    #print("number of datapoints in train_buckets", len(train_buckets[0]))  #89791
-    random.shuffle(train_buckets)
 
     T_before_warm_sart = time.time() # before warm-sart
     # default inital labeled size: 2.5% of training set 89791 * 2.5 % = 2,245
@@ -354,10 +387,9 @@ def active_train(config):
     validation_idx = np.random.choice(labeled_idx, int(0.5*len(labeled_idx)), False) # replace=False
     X_validation = list(operator.itemgetter(*validation_idx)(train_buckets[0]))
     print("X_validation[:10]['id'] in warm-sart: ")
-    for j in range(10):
-        print(X_validation[j]['id'])
-    train_idx = labeled_idx[np.logical_not(np.isin(labeled_idx, validation_idx))]
-    X_train =  list(operator.itemgetter(*train_idx)(train_buckets[0]))
+
+    train_idx = labeled_idx[np.logical_not(np.isin(labeled_idx, validation_idx))]   # labeled but not validation
+    X_train =  list(operator.itemgetter(*train_idx)(train_buckets[0]))   
     
     experiment_iteration = []
     experiment_iteration.append(Experiment(api_key="Q8LzfxMlAfA3ABWwq9fJDoR6r", project_name="hotpotqa-al", workspace="fan-luo"))
@@ -367,22 +399,15 @@ def active_train(config):
     T_after_warm_sart = time.time() # after warm-sart
     T_warm_sart = T_after_warm_sart - T_before_warm_sart
     print("warm sart time: ", time.strftime("%Hh %Mm %Ss", time.gmtime(T_warm_sart)))
-  
-    # question_list = []     
-    with open('idx2word.json', 'r') as fh:
-        idx2word_dict = json.load(fh)
-    with open('word2idx.json', 'r') as fh:
-        word2idx_dict = json.load(fh)
-
-    lucene_similarity_file = 'lucene_similarity_matrix.npz' 
-    loaded = np.load(lucene_similarity_file)
-    lucene_similarity_matrix = csr_matrix((loaded['data'], (loaded['row'], loaded['col'])), shape=(len(train_buckets[0]), len(train_buckets[0])))
 
     labeled_idx_file = config.save + '/' + config.run_name + '_labeled_idx.txt'
     with open(labeled_idx_file, 'a+') as labeled_idx_f:
         json.dump(labeled_idx.tolist(), labeled_idx_f)
         labeled_idx_f.write('\n')   
+    print("saved labeled_idx in warm start")
        
+    gc.collect()
+    
     experiment = ExistingExperiment(api_key="Q8LzfxMlAfA3ABWwq9fJDoR6r",previous_experiment=experiment_key)  # has to use ExistingExperiment because experiment_iteration[] interrupt the logging of emperiment 
     experiment.log_parameter("labeled indexes", labeled_idx.tolist(), step=0)       
        
@@ -393,6 +418,7 @@ def active_train(config):
         if(labeled_idx.shape[0] < len(train_buckets[0])):   
             # get the new indices from the algorithm
             old_labeled = np.copy(labeled_idx)
+            print("old_labeled.shape", old_labeled.shape)
             labeled_idx = query_method.query(config, train_buckets[0], labeled_idx, config.label_batch_size, iter_id, experiment_key, lucene_similarity_matrix)
             experiment = ExistingExperiment(api_key="Q8LzfxMlAfA3ABWwq9fJDoR6r",previous_experiment=experiment_key)  # has to use ExistingExperiment because experiment_iteration[] interrupt the logging of emperiment 
             experiment.log_parameter("labeled indexes", labeled_idx.tolist(), step=iter_id)  
@@ -418,8 +444,6 @@ def active_train(config):
             train_idx = labeled_idx[np.logical_not(np.isin(labeled_idx, validation_idx))]
             X_train = list(operator.itemgetter(*train_idx)(train_buckets[0]))
             print("X_validation[:10]['id'] in iteration ", iter_id, " : ")
-            for j in range(10):
-                print(X_validation[j]['id'])
                 
             experiment_iteration.append(Experiment(api_key="Q8LzfxMlAfA3ABWwq9fJDoR6r", project_name="hotpotqa-al", workspace="fan-luo"))
             experiment_iteration[iter_id].set_name(config.run_name + "iteration" + str(iter_id))
