@@ -158,34 +158,31 @@ class CoreSetSampling():
     # It computes each labeled datapoint to all unlaebled datapoints to build the distance matrix, and eventually choose the min of each column, that is, for each unlabled datapoint, the min distance to labled datapoint
     # Another implementation in https://github.com/JordanAsh/badge/blob/dd35b7a57392ea98ce3ee60b5e91ba995ed3ece7/query_strategies/core_set.py is similar, but computes each unlabeled datapoint to all laebled datapoints to build the distance matrix, and choose the min of each row 
     
-    @profile  
+ 
+    def get_farthest_idx(self, similarity_matrix, labeled_idx, unlabeled_idx):
+        labeled_similarity_matrix = similarity_matrix[labeled_idx, :]              # Only gets the rows of labeled questions
+        min_dist = scipy.sparse.csr_matrix.min(labeled_similarity_matrix, axis=0)  # min_dist is min of each column
+        min_dist = min_dist.tocsr()                                                #convert coo_matrix to Compressed Sparse Row format
+        farthest = scipy.sparse.csr_matrix.argmax(min_dist[:,unlabeled_idx])       # argmax of unlabeled columns 
+        return farthest
+    
+ 
     def greedy_k_center(self, similarity_matrix, labeled_idx, unlabeled_idx, amount):
 
         for i in range(amount):  
-            labeled_similarity_matrix = similarity_matrix[labeled_idx, :]              # Only gets the rows of labeled questions
-            min_dist = scipy.sparse.csr_matrix.min(labeled_similarity_matrix, axis=0)  # min_dist is min of each column
-            min_dist = min_dist.tocsr()                                                #convert coo_matrix to Compressed Sparse Row format
-            farthest = scipy.sparse.csr_matrix.argmax(min_dist[:,unlabeled_idx])       # argmax of unlabeled columns 
+            farthest = self.get_farthest_idx(similarity_matrix, labeled_idx, unlabeled_idx)
             new_labeled_idx = unlabeled_idx[farthest]
             labeled_idx = np.hstack((labeled_idx, new_labeled_idx))
             unlabeled_idx = unlabeled_idx[unlabeled_idx!=new_labeled_idx]
-            
-            #clear
-            labeled_similarity_matrix = scipy.sparse.csr_matrix((1, 1))
-            min_dist = scipy.sparse.csr_matrix((1, 1))
-            del labeled_similarity_matrix
-            del min_dist
             gc.collect()
             
         return labeled_idx
 
-    @profile  
     def query(self, config, X_train, labeled_idx, amount, iter_id, experiment_key, similarity_matrix):
  
         unlabeled_idx = get_unlabeled_idx(X_train, labeled_idx)
         
         if(amount < unlabeled_idx.shape[0]):
-            print("call greedy_k_center")
             updated_labeled_idx = self.greedy_k_center(similarity_matrix, labeled_idx, unlabeled_idx, amount)
         else:
             updated_labeled_idx = np.hstack((labeled_idx, unlabeled_idx))
@@ -315,12 +312,7 @@ def evaluate_sample(config, training_function, X_validation, X_train, experiment
 
     # shuffle the training set:
     random.shuffle(X_train)
-
-    # train, (validation) dev
-    # create the validation set:
-    # X_validation = X_train[:int(0.2*len(X_train))]   #
-    # X_train = X_train[int(0.2*len(X_train)):]
-
+    
     T_before_train = time.time() # before train
     # train and evaluate the model:
     training_function(config, [X_train], [X_validation], iteration_idx, experiment_iter) # the best model in this iteration is saved in the model.pt file
@@ -339,7 +331,6 @@ def evaluate_sample(config, training_function, X_validation, X_train, experiment
     for k in metrics.keys():
         experiment.log_metric(k, metrics[k], step=iteration_idx)
 
-@profile  
 def active_train(config):
 
     print('start active_train at' , end=' ')
@@ -348,32 +339,16 @@ def active_train(config):
     np.random.seed(config.seed)
     torch.manual_seed(config.seed)
     torch.cuda.manual_seed_all(config.seed)
-    
-    # lucene_similarity_file = 'lucene_similarity_sparse_matrix.npz'  
-    # lucene_similarity_matrix = scipy.sparse.load_npz(lucene_similarity_file)
-
-    lucene_similarity_file = 'lucene_similarity_matrix.npz' 
-    loaded = np.load(lucene_similarity_file, mmap_mode="r")
-    print("successfully load data from lucene_similarity_file")
-    lucene_similarity_matrix = scipy.sparse.csr_matrix((loaded['data'], (loaded['row'], loaded['col'])), shape=(89791, 89791))
-    del loaded.f  #ref: https://stackoverflow.com/questions/9244397/memory-overflow-when-using-numpy-load-in-a-loop
-    loaded.close()
-    del loaded
-    
-    print("successfully create sparse matrix lucene_similarity_matrix from data")
  
     train_buckets = get_buckets(config.train_record_file)   # get_buckets returns [datapoints], and datapoints is a list, not numpy array
     random.shuffle(train_buckets)
-    
+
     config.save = '{}-{}'.format(config.save, time.strftime("%Y%m%d-%H%M%S"))
     create_exp_dir(config.save, scripts_to_save=['run.py', 'model.py', 'util.py', 'sp_model.py'])
-    
-    # gc.collect()
     
     experiment = Experiment(api_key="Q8LzfxMlAfA3ABWwq9fJDoR6r", project_name="hotpotqa-al", workspace="fan-luo")
     experiment.set_name(config.run_name)   
     experiment_key = experiment.get_key()
-    
 
     T_before_warm_sart = time.time() # before warm-sart
     # default inital labeled size: 2.5% of training set 89791 * 2.5 % = 2,245
@@ -386,7 +361,6 @@ def active_train(config):
     
     validation_idx = np.random.choice(labeled_idx, int(0.5*len(labeled_idx)), False) # replace=False
     X_validation = list(operator.itemgetter(*validation_idx)(train_buckets[0]))
-    print("X_validation[:10]['id'] in warm-sart: ")
 
     train_idx = labeled_idx[np.logical_not(np.isin(labeled_idx, validation_idx))]   # labeled but not validation
     X_train =  list(operator.itemgetter(*train_idx)(train_buckets[0]))   
@@ -396,6 +370,7 @@ def active_train(config):
     experiment_iteration[0].set_name(config.run_name + "iteration0")  
     query_method = set_query_method(config.method, config.method2)
     evaluate_sample(config, train, X_validation, X_train, experiment_key, 0, experiment_iteration[0]) # will print evaluation result
+    
     T_after_warm_sart = time.time() # after warm-sart
     T_warm_sart = T_after_warm_sart - T_before_warm_sart
     print("warm sart time: ", time.strftime("%Hh %Mm %Ss", time.gmtime(T_warm_sart)))
@@ -405,9 +380,19 @@ def active_train(config):
         json.dump(labeled_idx.tolist(), labeled_idx_f)
         labeled_idx_f.write('\n')   
     print("saved labeled_idx in warm start")
-       
-    gc.collect()
     
+    # lucene_similarity_file = 'lucene_similarity_sparse_matrix.npz'  
+    # lucene_similarity_matrix = scipy.sparse.load_npz(lucene_similarity_file)
+    lucene_similarity_file = 'lucene_similarity_matrix.npz' 
+    loaded = np.load(lucene_similarity_file, mmap_mode="r")
+    print("successfully load data from lucene_similarity_file")
+    lucene_similarity_matrix = scipy.sparse.csr_matrix((loaded['data'], (loaded['row'], loaded['col'])), shape=(len(train_buckets[0]), len(train_buckets[0])))
+    del loaded.f  #ref: https://stackoverflow.com/questions/9244397/memory-overflow-when-using-numpy-load-in-a-loop
+    loaded.close()
+    del loaded
+    gc.collect()
+    print("successfully create sparse matrix lucene_similarity_matrix from data")
+
     experiment = ExistingExperiment(api_key="Q8LzfxMlAfA3ABWwq9fJDoR6r",previous_experiment=experiment_key)  # has to use ExistingExperiment because experiment_iteration[] interrupt the logging of emperiment 
     experiment.log_parameter("labeled indexes", labeled_idx.tolist(), step=0)       
        
@@ -418,7 +403,6 @@ def active_train(config):
         if(labeled_idx.shape[0] < len(train_buckets[0])):   
             # get the new indices from the algorithm
             old_labeled = np.copy(labeled_idx)
-            print("old_labeled.shape", old_labeled.shape)
             labeled_idx = query_method.query(config, train_buckets[0], labeled_idx, config.label_batch_size, iter_id, experiment_key, lucene_similarity_matrix)
             experiment = ExistingExperiment(api_key="Q8LzfxMlAfA3ABWwq9fJDoR6r",previous_experiment=experiment_key)  # has to use ExistingExperiment because experiment_iteration[] interrupt the logging of emperiment 
             experiment.log_parameter("labeled indexes", labeled_idx.tolist(), step=iter_id)  
