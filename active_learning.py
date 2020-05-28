@@ -161,9 +161,9 @@ class CoreSetSampling():
  
     def get_farthest_idx(self, similarity_matrix, labeled_idx, unlabeled_idx):
         labeled_similarity_matrix = similarity_matrix[labeled_idx, :]              # Only gets the rows of labeled questions
-        min_dist = scipy.sparse.csr_matrix.min(labeled_similarity_matrix, axis=0)  # min_dist is min of each column
-        min_dist = min_dist.tocsr()                                                #convert coo_matrix to Compressed Sparse Row format
-        farthest = scipy.sparse.csr_matrix.argmax(min_dist[:,unlabeled_idx])       # argmax of unlabeled columns 
+        max_simi = scipy.sparse.csr_matrix.max(labeled_similarity_matrix, axis=0)  # max_simi is max of each column
+        max_simi = max_simi.tocsr()                                                # convert coo_matrix to Compressed Sparse Row format
+        farthest = scipy.sparse.csr_matrix.argmin(max_simi[:,unlabeled_idx])       # argmin of unlabeled columns 
         return farthest
     
  
