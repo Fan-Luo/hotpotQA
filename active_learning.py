@@ -380,7 +380,7 @@ def active_train(config):
     torch.cuda.manual_seed_all(config.seed)
     
     lucene_similarity_file = 'lucene_similarity_matrix.npz' 
-    lucene_sparse_arrs = np.load(lucene_similarity_file, mmap_mode="r")
+    lucene_sparse_arrs = np.load(lucene_similarity_file)
     print("successfully load data from lucene_similarity_file")
 
     train_buckets = get_buckets(config.train_record_file)   # get_buckets returns [datapoints], and datapoints is a list, not numpy array
