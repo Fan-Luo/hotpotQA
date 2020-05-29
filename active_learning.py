@@ -157,33 +157,38 @@ class CoreSetSampling():
     # This implementation from https://github.com/dsgissin/DiscriminativeActiveLearning
     # It computes each labeled datapoint to all unlaebled datapoints to build the distance matrix, and eventually choose the min of each column, that is, for each unlabled datapoint, the min distance to labled datapoint
     # Another implementation in https://github.com/JordanAsh/badge/blob/dd35b7a57392ea98ce3ee60b5e91ba995ed3ece7/query_strategies/core_set.py is similar, but computes each unlabeled datapoint to all laebled datapoints to build the distance matrix, and choose the min of each row 
-    
- 
-    def get_farthest_idx(self, similarity_matrix, labeled_idx, unlabeled_idx):
-        labeled_similarity_matrix = similarity_matrix[labeled_idx, :]              # Only gets the rows of labeled questions
-        max_simi = scipy.sparse.csr_matrix.max(labeled_similarity_matrix, axis=0)  # max_simi is max of each column
-        max_simi = max_simi.tocsr()                                                # convert coo_matrix to Compressed Sparse Row format
-        farthest = scipy.sparse.csr_matrix.argmin(max_simi[:,unlabeled_idx])       # argmin of unlabeled columns 
-        return farthest
-    
- 
-    def greedy_k_center(self, similarity_matrix, labeled_idx, unlabeled_idx, amount):
 
-        for i in range(amount):  
-            farthest = self.get_farthest_idx(similarity_matrix, labeled_idx, unlabeled_idx)
-            new_labeled_idx = unlabeled_idx[farthest]
-            labeled_idx = np.hstack((labeled_idx, new_labeled_idx))
-            unlabeled_idx = unlabeled_idx[unlabeled_idx!=new_labeled_idx]
-            gc.collect()
+    def greedy_k_center(self, similarity_matrix, labeled_idx, unlabeled_idx, amount):
+        greedy_indices = []
+        question_num = labeled_idx.shape[0] + unlabeled_idx.shape[0]
+        max_simi = scipy.sparse.csr_matrix((1, question_num)) 
+        for j in range(1, labeled_idx.shape[0], 100):   # j = 1, 101, 201,...
+            if j + 100 < labeled_idx.shape[0]:          # the last labeled_idx.shape[0] % 100 datapoints
+                labeled_similarity_matrix = similarity_matrix[labeled_idx[j:j+100], :] 
+            else:
+                labeled_similarity_matrix = similarity_matrix[labeled_idx[j:], :]
+            labeled_similarity_matrix = scipy.sparse.bmat([[labeled_similarity_matrix], [max_simi]])  # add max_simi as a row at the bottom
+            max_simi = scipy.sparse.coo_matrix.max(labeled_similarity_matrix, axis=0)  # max_simi is max of each column, coo_matrix
             
-        return labeled_idx
+        max_simi = max_simi.tocsc()                                                # convert coo_matrix to csc_matrix
+        farthest = scipy.sparse.csc_matrix.argmin(max_simi[:,unlabeled_idx])       # argmin of unlabeled columns 
+        greedy_indices.append(farthest)
+        
+        for i in range(amount-1):  
+            new_labeled_idx = unlabeled_idx[farthest]
+            max_simi = max_simi.maximum(similarity_matrix[new_labeled_idx, :])      # csc_matrix
+            farthest = scipy.sparse.csc_matrix.argmin(max_simi[:,unlabeled_idx])    # argmin of unlabeled columns 
+            greedy_indices.append(farthest)
+            
+        return np.array(greedy_indices)
 
     def query(self, config, X_train, labeled_idx, amount, iter_id, experiment_key, similarity_matrix):
  
         unlabeled_idx = get_unlabeled_idx(X_train, labeled_idx)
         
         if(amount < unlabeled_idx.shape[0]):
-            updated_labeled_idx = self.greedy_k_center(similarity_matrix, labeled_idx, unlabeled_idx, amount)
+            new_indices = self.greedy_k_center(similarity_matrix, labeled_idx, unlabeled_idx, amount)
+            updated_labeled_idx = np.hstack((labeled_idx, unlabeled_idx[new_indices]))
         else:
             updated_labeled_idx = np.hstack((labeled_idx, unlabeled_idx))
             
