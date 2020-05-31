@@ -20,6 +20,7 @@ import ujson as json
 from sys import getsizeof
 from memory_profiler import profile
 import scipy.sparse
+import h5sparse
 
 def get_unlabeled_idx(X_train, labeled_idx):
     """
@@ -159,70 +160,49 @@ class CoreSetSampling():
     # This implementation from https://github.com/dsgissin/DiscriminativeActiveLearning
     # It computes each labeled datapoint to all unlaebled datapoints to build the distance matrix, and eventually choose the min of each column, that is, for each unlabled datapoint, the min distance to labled datapoint
     # Another implementation in https://github.com/JordanAsh/badge/blob/dd35b7a57392ea98ce3ee60b5e91ba995ed3ece7/query_strategies/core_set.py is similar, but computes each unlabeled datapoint to all laebled datapoints to build the distance matrix, and choose the min of each row 
+    
 
-    def fetch_rows(self, idxs, similarity_matrix_arrs, question_num):
-        row = np.array([]) 
-        col = np.array([])
-        data = np.array([])
-        for i, idx in enumerate(idxs):  # idx-th row
-            sparse_idx_start = np.searchsorted(similarity_matrix_arrs['row'], idx)
-            sparse_idx_end = np.searchsorted(similarity_matrix_arrs['row'], idx, side='right')
-            sparse_idx_row = np.ones(sparse_idx_end - sparse_idx_start) * i
-            sparse_idx_col = similarity_matrix_arrs['col'][sparse_idx_start:sparse_idx_end]
-            sparse_idx_data = similarity_matrix_arrs['data'][sparse_idx_start:sparse_idx_end]
-            row = np.hstack((row, sparse_idx_row))
-            col = np.hstack((col, sparse_idx_col))
-            data = np.hstack((data, sparse_idx_data))
-            del sparse_idx_row
-            del sparse_idx_col
-            del sparse_idx_data
-            gc.collect()
+    # @profile
+    def greedy_k_center(self, similarity_matrix, labeled_idx, unlabeled_idx, amount):
         
-        rows = scipy.sparse.coo_matrix((data, (row, col)), shape=(idxs.shape[0], question_num))  
-        del row
-        del col
-        del data
-        gc.collect()
-        return rows
-
-    def greedy_k_center(self, similarity_matrix_arrs, labeled_idx, unlabeled_idx, amount):
-        greedy_indices = []
         question_num = labeled_idx.shape[0] + unlabeled_idx.shape[0]
-        max_simi = scipy.sparse.coo_matrix((1, question_num))   # initialize with all 0s
+        max_simi = similarity_matrix['similarity_matrix'][labeled_idx[0]:labeled_idx[0]+1]    # initialize with first labeled row
         for j in range(1, labeled_idx.shape[0], 100):           # j = 1, 101, 201,...
             if j + 100 < labeled_idx.shape[0]:                  # the last labeled_idx.shape[0] % 100 datapoints
-                labeled_similarity_matrix = self.fetch_rows(labeled_idx[j:j+100], similarity_matrix_arrs, question_num)
+                labeled_similarity_matrix = similarity_matrix['similarity_matrix'][()][labeled_idx[j:j+100], :] 
             else:
-                labeled_similarity_matrix = self.fetch_rows(labeled_idx[j:], similarity_matrix_arrs, question_num)
+                labeled_similarity_matrix = similarity_matrix['similarity_matrix'][()][labeled_idx[j:], :]
             labeled_similarity_matrix = scipy.sparse.bmat([[labeled_similarity_matrix], [max_simi]])  # add max_simi as a row at the bottom
             max_simi = scipy.sparse.coo_matrix.max(labeled_similarity_matrix, axis=0)  # max_simi is max of each column, coo_matrix
             del labeled_similarity_matrix
-            gc.collect()
             
         max_simi = max_simi.tocsc()                                                 # convert coo_matrix to csc_matrix
         farthest = scipy.sparse.csc_matrix.argmin(max_simi[:,unlabeled_idx])        # argmin of unlabeled columns 
-        greedy_indices.append(farthest)
+        new_labeled_idx = unlabeled_idx[farthest]
+
+        labeled_idx = np.hstack((labeled_idx, new_labeled_idx))
+        unlabeled_idx = unlabeled_idx[unlabeled_idx!=new_labeled_idx]
         
         for i in range(amount-1):  
-            new_labeled_idx = unlabeled_idx[farthest]
-            new_labeled_row = self.fetch_rows(np.array([new_labeled_idx]), similarity_matrix_arrs, question_num)
+            new_labeled_row = similarity_matrix['similarity_matrix'][new_labeled_idx:new_labeled_idx+1] 
             max_simi = max_simi.maximum(new_labeled_row)                            # csc_matrix
             farthest = scipy.sparse.csc_matrix.argmin(max_simi[:,unlabeled_idx])    # argmin of unlabeled columns 
-            greedy_indices.append(farthest)
+            new_labeled_idx = unlabeled_idx[farthest]
+            labeled_idx = np.hstack((labeled_idx, new_labeled_idx))
+            unlabeled_idx = unlabeled_idx[unlabeled_idx!=new_labeled_idx]
             del new_labeled_row
-            gc.collect()
             
-        return np.array(greedy_indices)
+        return labeled_idx
+    
 
-
+    # @profile  
     def query(self, config, X_train, labeled_idx, amount, iter_id, experiment_key, similarity_matrix):
  
         unlabeled_idx = get_unlabeled_idx(X_train, labeled_idx)
         
         if(amount < unlabeled_idx.shape[0]):
-            print("call greedy_k_center")
-            new_indices = self.greedy_k_center(similarity_matrix, labeled_idx, unlabeled_idx, amount)
-            updated_labeled_idx = np.hstack((labeled_idx, unlabeled_idx[new_indices]))
+            # print(*labeled_idx)
+            updated_labeled_idx = self.greedy_k_center(similarity_matrix, labeled_idx, unlabeled_idx, amount)
         else:
             updated_labeled_idx = np.hstack((labeled_idx, unlabeled_idx))
             
@@ -370,6 +350,8 @@ def evaluate_sample(config, training_function, X_validation, X_train, experiment
     for k in metrics.keys():
         experiment.log_metric(k, metrics[k], step=iteration_idx)
 
+
+# @profile  
 def active_train(config):
 
     print('start active_train at' , end=' ')
@@ -379,12 +361,7 @@ def active_train(config):
     torch.manual_seed(config.seed)
     torch.cuda.manual_seed_all(config.seed)
     
-    lucene_similarity_file = 'lucene_similarity_matrix.npz' 
-    lucene_sparse_arrs = np.load(lucene_similarity_file)
-    print("successfully load data from lucene_similarity_file")
-
     train_buckets = get_buckets(config.train_record_file)   # get_buckets returns [datapoints], and datapoints is a list, not numpy array
-    # train_buckets = [train_buckets[0][:2000]]   # only 100 questions for debugging
     random.shuffle(train_buckets)
  
     config.save = '{}-{}'.format(config.save, time.strftime("%Y%m%d-%H%M%S"))
@@ -424,8 +401,9 @@ def active_train(config):
         json.dump(labeled_idx.tolist(), labeled_idx_f)
         labeled_idx_f.write('\n')   
     print("saved labeled_idx in warm start")
-
  
+    h5f_lucene = h5sparse.File("lucene_sparse.h5", "r")
+
     experiment = ExistingExperiment(api_key="Q8LzfxMlAfA3ABWwq9fJDoR6r",previous_experiment=experiment_key)  # has to use ExistingExperiment because experiment_iteration[] interrupt the logging of emperiment 
     experiment.log_parameter("labeled indexes", labeled_idx.tolist(), step=0)       
        
@@ -436,7 +414,7 @@ def active_train(config):
         if(labeled_idx.shape[0] < len(train_buckets[0])):   
             # get the new indices from the algorithm
             old_labeled = np.copy(labeled_idx)
-            labeled_idx = query_method.query(config, train_buckets[0], labeled_idx, config.label_batch_size, iter_id, experiment_key, lucene_sparse_arrs)
+            labeled_idx = query_method.query(config, train_buckets[0], labeled_idx, config.label_batch_size, iter_id, experiment_key, h5f_lucene)
             experiment = ExistingExperiment(api_key="Q8LzfxMlAfA3ABWwq9fJDoR6r",previous_experiment=experiment_key)  # has to use ExistingExperiment because experiment_iteration[] interrupt the logging of emperiment 
             experiment.log_parameter("labeled indexes", labeled_idx.tolist(), step=iter_id)  
             print("labeled_idx.shape", labeled_idx.shape)
@@ -451,15 +429,9 @@ def active_train(config):
             with open(labeled_idx_file, 'a+') as labeled_idx_f:
                 json.dump(new_idx.tolist(), labeled_idx_f)
                 labeled_idx_f.write('\n') 
-            # new_labels = Y_train[new_idx]
-            # new_labels /= np.sum(new_labels)
-            # new_labels = np.sum(new_labels, axis=0)
-            # entropy = -np.sum(new_labels * np.log(new_labels + 1e-10))
-            # entropies.append(entropy)
-            # label_distributions.append(new_labels)
-            # queries.append(new_idx)
             train_idx = labeled_idx[np.logical_not(np.isin(labeled_idx, validation_idx))]
             X_train = list(operator.itemgetter(*train_idx)(train_buckets[0]))
+            print("X_validation[:10]['id'] in iteration ", iter_id, " : ")
                 
             experiment_iteration.append(Experiment(api_key="Q8LzfxMlAfA3ABWwq9fJDoR6r", project_name="hotpotqa-al", workspace="fan-luo"))
             experiment_iteration[iter_id].set_name(config.run_name + "iteration" + str(iter_id))

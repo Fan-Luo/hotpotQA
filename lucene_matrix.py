@@ -20,7 +20,9 @@ from org.apache.lucene.util import Version
 from org.apache.lucene.queryparser.classic import QueryParser
 from org.apache.lucene.index import DirectoryReader
 from org.apache.lucene.search import IndexSearcher
-
+import scipy.sparse
+from memory_profiler import profile
+import h5sparse
 
 def get_question_list():
     train_record_file = 'train_record.pkl'
@@ -67,7 +69,8 @@ def index_questions():
     T_after_index = time.time()
     T = T_after_index - T_before_index
     print("index takes time: ", time.strftime("%Hh %Mm %Ss", time.gmtime(T)))
-    
+
+@profile      
 def query_questions():
     question_list = get_question_list()
     lucene.initVM()
@@ -127,16 +130,35 @@ def query_questions():
     print(matrix_col[:10])
     print(matrix_data[:10])
     
-    # return (matrix_row, matrix_col, matrix_data)
-    lucene_similarity_file = 'lucene_similarity_matrix.npz'     
-    np.savez_compressed(lucene_similarity_file, row=matrix_row, col=matrix_col, data=matrix_data)
+    del question_list
+    del query
+    del hits
+    del searcher
+    del reader
+    gc.collect()
     
+    lucene_similarity_matrix = scipy.sparse.csr_matrix((matrix_data, (matrix_row, matrix_col)), shape=(question_num, question_num))
+    with h5sparse.File("lucene_sparse.h5") as h5f:
+        h5f.create_dataset('similarity_matrix', data=lucene_similarity_matrix)
+            
+    # return (matrix_row, matrix_col, matrix_data)
+
+    # memory overflow when process after loading, because the loaed matrix takes a lot memory
+    # lucene_similarity_file = 'lucene_similarity_matrix.npz'   
+    # np.savez_compressed(lucene_similarity_file, row=matrix_row, col=matrix_col, data=matrix_data)
+    
+    # too slow to save
+    # lucene_similarity_file = 'lucene_similarity_sparse_matrix.npz'     
+    # lucene_similarity_matrix = scipy.sparse.csr_matrix((matrix_data, (matrix_row, matrix_col)), shape=(question_num, question_num))
+    # scipy.sparse.save_npz(lucene_similarity_file, lucene_similarity_matrix)
+    
+    # memory overflow when saving lists
     # lucene_sparse_matrix = {'row':matrix_row, 'col':matrix_col, 'data':matrix_data}
     # with open(lucene_similarity_file, 'w') as f:
     #     json.dump(lucene_sparse_matrix, f) 
     
 if __name__ == '__main__':
-    index_questions()
+    #index_questions()
     query_questions()
     
 
