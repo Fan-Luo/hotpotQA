@@ -5,5 +5,4 @@
 *.json
 logs/*
 debug.py
-/logs
 *credential*
