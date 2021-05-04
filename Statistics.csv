@@ -1,0 +1,74 @@
+﻿Name,Train,Dev,Note
+file,hotpot_train_v1.1.json,hotpot_dev_distractor_v1.json,
+num of examples,90447,7405,
+level,"medium 56814
+easy 17972
+hard 15661",dev are all hard questions,
+type,"bridge 72991
+comparison 17456","bridge 5918
+comparison 1487",
+number of words in context,"mean 825
+std 226 
+min 27 
+max 2558 ","mean 834 
+std 225 
+min 42
+max 2384",
+"number of context sentences, including title","mean 51
+std 11 
+min 4
+max 154","mean 51 
+std 11 
+min 4
+max 157",
+number of words in the answer,"mean 2 
+std 1.6 
+min 1 
+max 76","mean 2.4
+std 1.7
+min 1
+max 28",
+"number of questions with answer 'yes' </br>
+
+number of questions with answer 'no'","2748
+2735","225
+233",questions with answer yes/no are all comparison questions
+answer in context,"True 87837
+False 2610","True 7191
+False 214","2610:  yes 2586  no 17    ''   7
+2:        yes 212                  ''   2"
+count the number of supporting facts,"mean 2.4
+std 0.67 
+min 2
+max 12","mean 2.4 
+std 0.7 
+min 2
+max 8",
+"answer in any of the supporting facts ","True: 86483
+False: 3964","True: 7064
+False: 341","3964:   yes/no: 3934   other: 30
+341:      yes/no: 337     other: 4"
+"number of supporting facts contains the answer ","0 3964
+1 66304
+2 19654
+3 469
+4 40
+5 9
+6 7
+
+mean 1.2
+std 0.5 
+min 0
+max 6","0 341
+1 5875
+2 1140
+3 44
+4 5
+
+
+
+mean 1.1 
+std 0.46 
+min 0
+max 4",
+,,,
